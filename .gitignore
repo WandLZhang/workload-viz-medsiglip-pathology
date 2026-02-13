@@ -1,0 +1,45 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.venv/
+*.egg-info/
+
+# HuggingFace
+hf_cache/
+.cache/huggingface/
+
+# Model artifacts
+*.bin
+*.safetensors
+*.ckpt
+
+# Node
+node_modules/
+dist/
+
+# IDE
+.idea/
+.vscode/
+
+# OS
+.DS_Store
+
+# Test/Reference files
+test/
+
+# Environment variables
+.env
+.env.local
+
+# Notebook checkpoints
+.ipynb_checkpoints/
+
+# Data files
+*.zip
+*.tar.gz
+NCT-CRC-HE-100K/
+CRC-VAL-HE-7K/
+batch_predict_input/
+batch_predict_output/

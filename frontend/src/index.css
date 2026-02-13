@@ -1,0 +1,369 @@
+/* Material 3 Design Tokens */
+:root {
+  /* Primary Colors */
+  --color-primary: #1A73E8;
+  --color-on-primary: #FFFFFF;
+  --color-primary-container: #D3E3FD;
+  --color-on-primary-container: #001B3F;
+  
+  /* Secondary Colors */
+  --color-secondary: #5F6368;
+  --color-on-secondary: #FFFFFF;
+  --color-secondary-container: #E8EAED;
+  --color-on-secondary-container: #1F1F1F;
+  
+  /* Tertiary Colors - Medical Green */
+  --color-tertiary: #0DC09D;
+  --color-on-tertiary: #FFFFFF;
+  --color-tertiary-container: #D0F5EC;
+  --color-on-tertiary-container: #003D32;
+  
+  /* Surface Colors */
+  --color-surface: #FFFFFF;
+  --color-on-surface: #1F1F1F;
+  --color-surface-variant: #E8EAED;
+  --color-on-surface-variant: #5F6368;
+  --color-surface-container: #F1F3F4;
+  --color-surface-container-high: #E8EAED;
+  --color-surface-container-low: #F8F9FA;
+  
+  /* Background */
+  --color-background: #FFFFFF;
+  --color-on-background: #1F1F1F;
+  
+  /* Outline */
+  --color-outline: #DADCE0;
+  --color-outline-variant: #E8EAED;
+  
+  /* Error */
+  --color-error: #D93025;
+  --color-on-error: #FFFFFF;
+  
+  /* Success */
+  --color-success: #34A853;
+  --color-on-success: #FFFFFF;
+  
+  /* Warning */
+  --color-warning: #F9AB00;
+  --color-on-warning: #1F1F1F;
+  
+  /* Scrim */
+  --color-scrim: #000000;
+  
+  /* Shadow/Elevation */
+  --elevation-1: 0 1px 2px rgba(0,0,0,0.3), 0 1px 3px 1px rgba(0,0,0,0.15);
+  --elevation-2: 0 1px 2px rgba(0,0,0,0.3), 0 2px 6px 2px rgba(0,0,0,0.15);
+  --elevation-3: 0 4px 8px 3px rgba(0,0,0,0.15), 0 1px 3px rgba(0,0,0,0.3);
+  
+  /* Border Radius */
+  --radius-extra-small: 4px;
+  --radius-small: 8px;
+  --radius-medium: 12px;
+  --radius-large: 16px;
+  --radius-extra-large: 28px;
+  --radius-full: 9999px;
+  
+  /* Motion - Durations (ms) */
+  --duration-short1: 50ms;
+  --duration-short2: 100ms;
+  --duration-short3: 150ms;
+  --duration-short4: 200ms;
+  --duration-medium1: 250ms;
+  --duration-medium2: 300ms;
+  --duration-medium3: 350ms;
+  --duration-medium4: 400ms;
+  --duration-long1: 450ms;
+  --duration-long2: 500ms;
+  --duration-long3: 550ms;
+  --duration-long4: 600ms;
+  
+  /* Motion - Easing */
+  --easing-standard: cubic-bezier(0.2, 0.0, 0, 1.0);
+  --easing-standard-accelerate: cubic-bezier(0.3, 0.0, 1, 1);
+  --easing-standard-decelerate: cubic-bezier(0, 0, 0, 1);
+  --easing-emphasized: cubic-bezier(0.2, 0.0, 0, 1.0);
+  --easing-emphasized-decelerate: cubic-bezier(0.05, 0.7, 0.1, 1.0);
+  --easing-emphasized-accelerate: cubic-bezier(0.3, 0.0, 0.8, 0.15);
+}
+
+/* Base Styles */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: 'Google Sans Text', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background-color: var(--color-background);
+  color: var(--color-on-background);
+  line-height: 1.5;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+/* Typography - Material 3 Type Scale */
+.display-large {
+  font-family: 'Google Sans', sans-serif;
+  font-size: 57px;
+  font-weight: 400;
+  line-height: 64px;
+  letter-spacing: -0.25px;
+}
+
+.display-medium {
+  font-family: 'Google Sans', sans-serif;
+  font-size: 45px;
+  font-weight: 400;
+  line-height: 52px;
+  letter-spacing: 0;
+}
+
+.display-small {
+  font-family: 'Google Sans', sans-serif;
+  font-size: 36px;
+  font-weight: 400;
+  line-height: 44px;
+  letter-spacing: 0;
+}
+
+.headline-large {
+  font-family: 'Google Sans Text', sans-serif;
+  font-size: 32px;
+  font-weight: 400;
+  line-height: 40px;
+  letter-spacing: 0;
+}
+
+.headline-medium {
+  font-family: 'Google Sans Text', sans-serif;
+  font-size: 28px;
+  font-weight: 400;
+  line-height: 36px;
+  letter-spacing: 0;
+}
+
+.headline-small {
+  font-family: 'Google Sans Text', sans-serif;
+  font-size: 24px;
+  font-weight: 400;
+  line-height: 32px;
+  letter-spacing: 0;
+}
+
+.title-large {
+  font-family: 'Google Sans Text', sans-serif;
+  font-size: 22px;
+  font-weight: 400;
+  line-height: 28px;
+  letter-spacing: 0;
+}
+
+.title-medium {
+  font-family: 'Google Sans Text', sans-serif;
+  font-size: 16px;
+  font-weight: 500;
+  line-height: 24px;
+  letter-spacing: 0.15px;
+}
+
+.title-small {
+  font-family: 'Google Sans Text', sans-serif;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 20px;
+  letter-spacing: 0.1px;
+}
+
+.body-large {
+  font-family: 'Google Sans Text', sans-serif;
+  font-size: 16px;
+  font-weight: 400;
+  line-height: 24px;
+  letter-spacing: 0.5px;
+}
+
+.body-medium {
+  font-family: 'Google Sans Text', sans-serif;
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 20px;
+  letter-spacing: 0.25px;
+}
+
+.body-small {
+  font-family: 'Google Sans Text', sans-serif;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 16px;
+  letter-spacing: 0.4px;
+}
+
+.label-large {
+  font-family: 'Google Sans Text', sans-serif;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 20px;
+  letter-spacing: 0.1px;
+}
+
+.label-medium {
+  font-family: 'Google Sans Text', sans-serif;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 16px;
+  letter-spacing: 0.5px;
+}
+
+.label-small {
+  font-family: 'Google Sans Text', sans-serif;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 16px;
+  letter-spacing: 0.5px;
+}
+
+/* Material Symbols */
+.material-symbols-outlined {
+  font-family: 'Material Symbols Outlined';
+  font-weight: normal;
+  font-style: normal;
+  font-size: 24px;
+  line-height: 1;
+  letter-spacing: normal;
+  text-transform: none;
+  display: inline-block;
+  white-space: nowrap;
+  word-wrap: normal;
+  direction: ltr;
+  -webkit-font-feature-settings: 'liga';
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Animations */
+@keyframes pulse {
+  0%, 100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.02);
+  }
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes fadeOut {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes slideInRight {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+
+@keyframes slideOutLeft {
+  from {
+    transform: translateX(0);
+    opacity: 1;
+  }
+  to {
+    transform: translateX(-100%);
+    opacity: 0;
+  }
+}
+
+@keyframes progressBar {
+  0% {
+    width: 0%;
+  }
+  100% {
+    width: 100%;
+  }
+}
+
+@keyframes wavyProgress {
+  0%, 100% {
+    transform: translateY(0px);
+  }
+  20% {
+    transform: translateY(-9px);
+  }
+  40% {
+    transform: translateY(0px);
+  }
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: 100% center;
+  }
+  100% {
+    background-position: 0% center;
+  }
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Utility Classes */
+.flex {
+  display: flex;
+}
+
+.flex-col {
+  flex-direction: column;
+}
+
+.items-center {
+  align-items: center;
+}
+
+.justify-center {
+  justify-content: center;
+}
+
+.text-center {
+  text-align: center;
+}
+
+/* ReactFlow overrides */
+.react-flow__node {
+  cursor: default;
+}
+
+.react-flow__edge-path {
+  stroke: var(--color-outline);
+  stroke-width: 2;
+}
+
+.react-flow__edge.animated path {
+  stroke: var(--color-primary);
+}

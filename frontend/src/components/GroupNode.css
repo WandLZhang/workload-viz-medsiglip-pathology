@@ -1,0 +1,58 @@
+.group-node {
+  border-radius: 20px;
+  position: relative;
+  pointer-events: none;
+}
+
+/* IT group - subtle blue */
+.group-node.group-it {
+  background: rgba(26, 115, 232, 0.04);
+  border: 1.5px solid rgba(26, 115, 232, 0.15);
+}
+
+/* Researcher group - subtle purple/green */
+.group-node.group-researcher {
+  background: rgba(13, 192, 157, 0.04);
+  border: 1.5px solid rgba(13, 192, 157, 0.15);
+}
+
+.group-label {
+  position: absolute;
+  left: 16px;
+  top: 16px;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  pointer-events: none;
+}
+
+.group-icon {
+  font-size: 20px;
+  opacity: 0.8;
+}
+
+.group-it .group-icon {
+  color: #1A73E8;
+}
+
+.group-researcher .group-icon {
+  color: #0DC09D;
+}
+
+.group-text {
+  font-family: 'Google Sans Text', sans-serif;
+  font-size: 13px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  opacity: 0.8;
+}
+
+.group-it .group-text {
+  color: #1A73E8;
+}
+
+.group-researcher .group-text {
+  color: #0DC09D;
+}

@@ -1,0 +1,212 @@
+.execution-box {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background-color: var(--color-surface);
+}
+
+.execution-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--color-outline-variant);
+  background-color: var(--color-surface-container-low);
+}
+
+.execution-title-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.execution-icon {
+  font-size: 24px;
+  color: var(--color-primary);
+}
+
+.execution-status-badge {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: var(--radius-full);
+  border: 1px solid;
+}
+
+.status-badge-icon {
+  font-size: 16px;
+}
+
+.mini-spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+.command-display {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 20px;
+  background-color: #1e1e1e;
+  font-family: monospace;
+  font-size: 13px;
+}
+
+.command-prompt {
+  color: #4CAF50;
+  font-weight: bold;
+}
+
+.command-text {
+  color: #E0E0E0;
+  word-break: break-all;
+}
+
+.logs-container {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.logs-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 20px;
+  background-color: var(--color-surface-container);
+  border-bottom: 1px solid var(--color-outline-variant);
+}
+
+.logs-icon {
+  font-size: 18px;
+  color: var(--color-on-surface-variant);
+}
+
+.log-count {
+  margin-left: auto;
+  padding: 2px 8px;
+  background-color: var(--color-surface-variant);
+  border-radius: var(--radius-full);
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--color-on-surface-variant);
+}
+
+.logs-scroll-area {
+  flex: 1;
+  overflow-y: auto;
+  background-color: #1e1e1e;
+  padding: 16px;
+  font-family: monospace;
+  font-size: 12px;
+}
+
+.logs-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 100%;
+  color: #666;
+}
+
+.logs-empty .material-symbols-outlined {
+  font-size: 18px;
+}
+
+.log-entry {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 6px;
+  line-height: 1.4;
+}
+
+.log-timestamp {
+  color: #666;
+  flex-shrink: 0;
+}
+
+.log-message {
+  word-break: break-word;
+}
+
+.log-info .log-message {
+  color: #9E9E9E;
+}
+
+.log-success .log-message {
+  color: #4CAF50;
+}
+
+.log-error .log-message {
+  color: #f44336;
+}
+
+.execution-progress {
+  padding: 16px;
+  background-color: var(--color-surface-container-low);
+  border-top: 1px solid var(--color-outline-variant);
+}
+
+.wavy-progress {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.wavy-bar {
+  width: 4px;
+  height: 20px;
+  background: linear-gradient(135deg, #0DC09D 0%, #1A73E8 100%);
+  border-radius: var(--radius-full);
+  animation: wavyProgress 1.5s ease-in-out infinite;
+}
+
+.wavy-bar:nth-child(1) { animation-delay: 0ms; }
+.wavy-bar:nth-child(2) { animation-delay: 150ms; }
+.wavy-bar:nth-child(3) { animation-delay: 300ms; }
+.wavy-bar:nth-child(4) { animation-delay: 450ms; }
+.wavy-bar:nth-child(5) { animation-delay: 600ms; }
+
+@keyframes wavyProgress {
+  0%, 100% {
+    transform: translateY(0px);
+  }
+  20% {
+    transform: translateY(-8px);
+  }
+  40% {
+    transform: translateY(0px);
+  }
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Scrollbar styling */
+.logs-scroll-area::-webkit-scrollbar {
+  width: 8px;
+}
+
+.logs-scroll-area::-webkit-scrollbar-track {
+  background: #1e1e1e;
+}
+
+.logs-scroll-area::-webkit-scrollbar-thumb {
+  background-color: #444;
+  border-radius: 4px;
+}
+
+.logs-scroll-area::-webkit-scrollbar-thumb:hover {
+  background-color: #555;
+}

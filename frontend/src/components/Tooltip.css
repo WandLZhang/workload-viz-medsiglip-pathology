@@ -1,0 +1,75 @@
+.tooltip-container {
+  position: fixed;
+  background-color: #1e1e1e;
+  color: #e0e0e0;
+  border: 1px solid #444;
+  border-radius: 8px;
+  padding: 12px;
+  z-index: 1000;
+  max-width: min(600px, calc(100vw - 40px));
+  max-height: min(400px, calc(100vh - 100px));
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+  opacity: 0;
+  animation: fadeIn 0.15s ease-out forwards;
+  right: 20px;
+  top: 100px;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.tooltip-header {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 8px;
+  flex-shrink: 0;
+}
+
+.copy-button {
+  background-color: #333;
+  color: #e0e0e0;
+  border: 1px solid #555;
+  border-radius: 4px;
+  padding: 4px 8px;
+  cursor: pointer;
+  font-size: 12px;
+  transition: background-color 0.2s;
+}
+
+.copy-button:hover {
+  background-color: #444;
+}
+
+.tooltip-content {
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: monospace;
+  font-size: 12px;
+}
+
+/* For scrollbar styling */
+.tooltip-content::-webkit-scrollbar {
+  width: 8px;
+}
+
+.tooltip-content::-webkit-scrollbar-track {
+  background: #1e1e1e;
+}
+
+.tooltip-content::-webkit-scrollbar-thumb {
+  background-color: #555;
+  border-radius: 4px;
+  border: 2px solid #1e1e1e;
+}
