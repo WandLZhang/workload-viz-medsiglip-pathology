@@ -33,12 +33,21 @@ CORS(app)
 PROJECT_ID = os.environ.get("GCP_PROJECT_ID", "wz-workload-viz-medsiglip")
 BUCKET_NAME = f"{PROJECT_ID}-bucket"
 SERVICE_ACCOUNT_NAME = os.environ.get("SERVICE_ACCOUNT_NAME", "medsiglip-pipeline-sa")
-# europe-west4 chosen for best A100 availability among Workbench-supported regions.
-# GCE Supply dashboard (2026-02-12): europe-west4-a has 96 unsold A100 chips (73.91% sold)
-# vs us-central1-b with 76 unsold (92.66% sold). Better demo repeatability.
+# Zone fallback list for A100 Workbench provisioning.
+# Ordered by A100 availability from GCE Supply dashboard (2026-02-12).
 # Notebooks API v2 only supports zones a/b/c per region.
-REGION = os.environ.get("GCP_REGION", "europe-west4")
-ZONE = f"{REGION}-a"
+# On STOCKOUT, execute_provision_workbench() tries the next zone and updates
+# REGION/ZONE globals so all downstream endpoints (config, polling, bucket) match.
+PREFERRED_ZONES = [
+    # Asia — best A100 availability (14.58% sold, 123 unsold, 11 net empty hosts)
+    'asia-northeast3-b', 'asia-northeast3-a', 'asia-northeast3-c',
+    # Europe — good availability (73.91% sold, 96 unsold, 7 net empty)
+    'europe-west4-a', 'europe-west4-b', 'europe-west4-c',
+    # US — fallback (92.66% sold, 76 unsold, 12 net empty)
+    'us-central1-b', 'us-central1-a', 'us-central1-c',
+]
+REGION = os.environ.get("GCP_REGION", "asia-northeast3")
+ZONE = f"{REGION}-b"
 WORKBENCH_INSTANCE_NAME = os.environ.get("WORKBENCH_INSTANCE_NAME", "medsiglip-researcher-workbench")
 
 
@@ -444,15 +453,18 @@ def execute_provision_workbench():
     """
     Provision a Vertex AI Workbench instance for researchers.
     Uses the Notebooks API v2 (notebooks.googleapis.com/v2) to create a Workbench Instance.
-    The v1 API for user-managed notebooks has been deprecated.
-    If instance already exists, returns the URL to access it.
+    Tries zones from PREFERRED_ZONES in order; on STOCKOUT, skips to next zone.
+    Updates global REGION/ZONE so all downstream endpoints match the resolved zone.
+    If instance already exists in the current ZONE, returns its URL.
     """
+    global REGION, ZONE
+
     yield log_msg(f"Provisioning Vertex AI Workbench: {WORKBENCH_INSTANCE_NAME}...")
-    
+
     try:
         credentials, project = default()
-        
-        # First, enable the Notebooks API if not already enabled
+
+        # Enable the Notebooks API if not already enabled
         yield log_msg("  Enabling notebooks.googleapis.com API...")
         try:
             service_usage = discovery.build('serviceusage', 'v1', credentials=credentials)
@@ -465,53 +477,23 @@ def execute_provision_workbench():
                 yield log_msg("  ✓ Notebooks API already enabled", "info")
             else:
                 yield log_msg(f"  ⚠ Notebooks API: {str(e)[:80]}", "info")
-        
-        # Build the Notebooks API v2 client (v1 is deprecated for new instances)
+
         notebooks_service = discovery.build('notebooks', 'v2', credentials=credentials)
-        
-        # v2 API still uses zone for location (not region)
-        instance_name = f"projects/{PROJECT_ID}/locations/{ZONE}/instances/{WORKBENCH_INSTANCE_NAME}"
         workbench_url = f"https://console.cloud.google.com/vertex-ai/workbench/instances?project={PROJECT_ID}"
         jupyter_url = None
-        
-        # Check if instance already exists (with retry for API propagation)
-        max_retries = 4
-        for attempt in range(max_retries):
-            try:
-                yield log_msg(f"  Checking for existing instance...")
-                instance = notebooks_service.projects().locations().instances().get(
-                    name=instance_name
-                ).execute()
-                break  # success — instance found
-            except Exception as e:
-                err_str = str(e)
-                if ('SERVICE_DISABLED' in err_str or 'has not been used' in err_str) and attempt < max_retries - 1:
-                    wait_secs = 15 * (attempt + 1)
-                    yield log_msg(f"  ⏳ Notebooks API still propagating, waiting {wait_secs}s (attempt {attempt+1}/{max_retries})...", "info")
-                    time.sleep(wait_secs)
-                    # Rebuild client after wait
-                    notebooks_service = discovery.build('notebooks', 'v2', credentials=credentials)
-                    continue
-                elif 'notFound' in err_str.lower() or '404' in err_str:
-                    instance = None  # Signal to create new instance
-                    break
-                else:
-                    raise e
-        else:
-            yield step_error("Notebooks API not ready after retries. Please wait a minute and try again.")
-            return
-        
-        if instance is not None:
-            
+
+        # Check if instance already exists in the current default zone
+        instance_name = f"projects/{PROJECT_ID}/locations/{ZONE}/instances/{WORKBENCH_INSTANCE_NAME}"
+        yield log_msg(f"  Checking for existing instance in {ZONE}...")
+        try:
+            instance = notebooks_service.projects().locations().instances().get(
+                name=instance_name
+            ).execute()
             state = instance.get('state', 'UNKNOWN')
             yield log_msg(f"  ✓ Workbench instance already exists (state: {state})", "info")
-            
-            # v2 API uses 'proxyUri' for JupyterLab access
             if 'proxyUri' in instance:
                 jupyter_url = instance['proxyUri']
                 yield log_msg(f"  JupyterLab URL: {jupyter_url}", "success")
-            
-            # Send the workbench URL for frontend to display
             yield stream_sse({
                 "log": f"Workbench ready: {WORKBENCH_INSTANCE_NAME}",
                 "type": "success",
@@ -521,143 +503,158 @@ def execute_provision_workbench():
                 "status": "complete"
             })
             return
-        
-        # Instance not found — create new one
-        yield log_msg(f"  Instance not found, creating new workbench...", "info")
-        
-        # Create the Workbench instance using v2 API
+        except Exception as e:
+            err_str = str(e)
+            if 'notFound' in err_str.lower() or '404' in err_str:
+                yield log_msg("  Instance not found, will create new one...", "info")
+            elif 'SERVICE_DISABLED' in err_str or 'has not been used' in err_str:
+                yield log_msg("  ⏳ Notebooks API propagating, proceeding to create...", "info")
+                time.sleep(15)
+                notebooks_service = discovery.build('notebooks', 'v2', credentials=credentials)
+            else:
+                raise e
+
+        # --- Zone fallback loop: try each zone in PREFERRED_ZONES ---
         sa_email = f"{SERVICE_ACCOUNT_NAME}@{PROJECT_ID}.iam.gserviceaccount.com"
-        
-        # Startup script: install deps only. Data download + notebook cells are user-driven.
+
         startup_script = '''#!/bin/bash
 set -e
 echo "=== MedSigLIP A100 Workbench Setup ==="
-
-# Verify GPU
 nvidia-smi || echo "WARNING: nvidia-smi not found, GPU drivers may need install"
-
-# Install Python dependencies for MedSigLIP fine-tuning
 pip install --upgrade pip
 pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124
 pip install transformers datasets huggingface_hub accelerate
 pip install google-cloud-aiplatform google-cloud-storage
 pip install scikit-learn matplotlib pillow tqdm
-
-# Create researcher workspace
 mkdir -p /home/jupyter/medsiglip-workspace
 chown -R jupyter:jupyter /home/jupyter/medsiglip-workspace
-
 echo "=== Setup complete. Open medsiglip-workspace/ in JupyterLab ==="
 '''
 
-        # v2 API instance body structure with gceSetup — A100 GPU for fine-tuning
-        instance_body = {
-            'gceSetup': {
-                'machineType': 'a2-highgpu-1g',
-                'acceleratorConfigs': [
-                    {
-                        'type': 'NVIDIA_TESLA_A100',
-                        'coreCount': '1'
-                    }
-                ],
-                'serviceAccounts': [
-                    {
-                        'email': sa_email,
-                        'scopes': ['https://www.googleapis.com/auth/cloud-platform']
-                    }
-                ],
-                'networkInterfaces': [
-                    {
+        yield log_msg(f"  Trying {len(PREFERRED_ZONES)} zones for A100 availability...", "info")
+
+        for zone_candidate in PREFERRED_ZONES:
+            candidate_region = zone_candidate.rsplit('-', 1)[0]  # e.g. 'asia-northeast3-b' → 'asia-northeast3'
+
+            instance_body = {
+                'gceSetup': {
+                    'machineType': 'a2-highgpu-1g',
+                    'acceleratorConfigs': [{'type': 'NVIDIA_TESLA_A100', 'coreCount': '1'}],
+                    'serviceAccounts': [{'email': sa_email, 'scopes': ['https://www.googleapis.com/auth/cloud-platform']}],
+                    'networkInterfaces': [{
                         'network': f'projects/{PROJECT_ID}/global/networks/default',
-                        'subnet': f'projects/{PROJECT_ID}/regions/{REGION}/subnetworks/default',
+                        'subnet': f'projects/{PROJECT_ID}/regions/{candidate_region}/subnetworks/default',
                         'nicType': 'VIRTIO_NET'
-                    }
-                ],
-                'disablePublicIp': True,  # Use internal IP only (org policy compliance)
-                'metadata': {
-                    'startup-script': startup_script,
-                    'proxy-mode': 'service_account'
-                },
-                'bootDisk': {
-                    'diskSizeGb': '300',
-                    'diskType': 'PD_SSD'
-                },
-                'vmImage': {
-                    'project': 'cloud-notebooks-managed',
-                    'name': 'workbench-instances-v20260122'
-                },
-                'shieldedInstanceConfig': {
-                    'enableSecureBoot': True,
-                    'enableVtpm': True,
-                    'enableIntegrityMonitoring': True
+                    }],
+                    'disablePublicIp': True,
+                    'metadata': {'startup-script': startup_script, 'proxy-mode': 'service_account'},
+                    'bootDisk': {'diskSizeGb': '300', 'diskType': 'PD_SSD'},
+                    'vmImage': {'project': 'cloud-notebooks-managed', 'name': 'workbench-instances-v20260122'},
+                    'shieldedInstanceConfig': {'enableSecureBoot': True, 'enableVtpm': True, 'enableIntegrityMonitoring': True}
                 }
             }
-        }
-        
-        yield log_msg("  Creating Workbench instance (this takes 5-10 minutes)...", "info")
-        yield log_msg(f"  Machine: a2-highgpu-1g (A100 40GB GPU), Zone: {ZONE}", "info")
-        yield log_msg(f"  Disk: 300GB PD-SSD, Network: default (no public IP)", "info")
-        yield log_msg(f"  Using Notebooks API v2 (Workbench Instances)", "info")
-        
-        # v2 API uses zone for location
-        operation = notebooks_service.projects().locations().instances().create(
-            parent=f"projects/{PROJECT_ID}/locations/{ZONE}",
-            instanceId=WORKBENCH_INSTANCE_NAME,
-            body=instance_body
-        ).execute()
-        
-        operation_name = operation.get('name')
-        yield log_msg(f"  Operation started: {operation_name.split('/')[-1]}", "info")
-        
-        # Poll for operation completion
-        max_wait = 600  # 10 minutes max
-        poll_interval = 15
-        elapsed = 0
-        
-        while elapsed < max_wait:
-            op_result = notebooks_service.projects().locations().operations().get(
-                name=operation_name
-            ).execute()
-            
-            if op_result.get('done'):
-                if 'error' in op_result:
-                    yield step_error(f"Failed: {op_result['error'].get('message', 'Unknown error')}")
-                    return
-                
-                yield log_msg("  ✓ Workbench instance created successfully!", "success")
-                
-                # Get the instance details
-                instance = notebooks_service.projects().locations().instances().get(
-                    name=instance_name
+
+            yield log_msg(f"  → Trying zone: {zone_candidate} (region: {candidate_region})...", "info")
+
+            try:
+                operation = notebooks_service.projects().locations().instances().create(
+                    parent=f"projects/{PROJECT_ID}/locations/{zone_candidate}",
+                    instanceId=WORKBENCH_INSTANCE_NAME,
+                    body=instance_body
                 ).execute()
-                
-                if 'proxyUri' in instance:
-                    jupyter_url = instance['proxyUri']
-                    yield log_msg(f"  JupyterLab URL: {jupyter_url}", "success")
-                
+            except Exception as e:
+                err_str = str(e)
+                if 'STOCKOUT' in err_str or 'does not have enough resources' in err_str:
+                    yield log_msg(f"  ✗ {zone_candidate}: STOCKOUT — no A100 capacity", "error")
+                    continue
+                elif 'already exists' in err_str.lower():
+                    yield log_msg(f"  ✓ Instance already exists in {zone_candidate}", "info")
+                    REGION = candidate_region
+                    ZONE = zone_candidate
+                    yield stream_sse({
+                        "log": f"Workbench ready: {WORKBENCH_INSTANCE_NAME}",
+                        "type": "success",
+                        "workbenchUrl": workbench_url,
+                        "instanceName": WORKBENCH_INSTANCE_NAME,
+                        "status": "complete"
+                    })
+                    return
+                else:
+                    yield log_msg(f"  ✗ {zone_candidate}: {err_str[:120]}", "error")
+                    continue
+
+            # Creation request accepted — update globals to this zone
+            REGION = candidate_region
+            ZONE = zone_candidate
+            yield log_msg(f"  ✓ Creation accepted in {zone_candidate}!", "success")
+            yield log_msg(f"  Machine: a2-highgpu-1g (A100 40GB GPU), Zone: {ZONE}", "info")
+            yield log_msg(f"  Region/Zone updated globally → {REGION}/{ZONE}", "info")
+
+            operation_name = operation.get('name')
+            yield log_msg(f"  Operation: {operation_name.split('/')[-1]}", "info")
+
+            # Poll for operation completion
+            instance_name = f"projects/{PROJECT_ID}/locations/{ZONE}/instances/{WORKBENCH_INSTANCE_NAME}"
+            max_wait = 600
+            poll_interval = 15
+            elapsed = 0
+
+            while elapsed < max_wait:
+                op_result = notebooks_service.projects().locations().operations().get(
+                    name=operation_name
+                ).execute()
+
+                if op_result.get('done'):
+                    if 'error' in op_result:
+                        err_msg = op_result['error'].get('message', 'Unknown error')
+                        if 'STOCKOUT' in err_msg or 'does not have enough resources' in err_msg:
+                            yield log_msg(f"  ✗ {zone_candidate}: STOCKOUT during provisioning", "error")
+                            break  # break inner while → continue to next zone
+                        yield step_error(f"Failed in {zone_candidate}: {err_msg}")
+                        return
+
+                    yield log_msg("  ✓ Workbench instance created successfully!", "success")
+
+                    instance = notebooks_service.projects().locations().instances().get(
+                        name=instance_name
+                    ).execute()
+
+                    if 'proxyUri' in instance:
+                        jupyter_url = instance['proxyUri']
+                        yield log_msg(f"  JupyterLab URL: {jupyter_url}", "success")
+
+                    yield stream_sse({
+                        "log": f"Workbench ready: {WORKBENCH_INSTANCE_NAME} in {ZONE}",
+                        "type": "success",
+                        "workbenchUrl": workbench_url,
+                        "jupyterUrl": jupyter_url,
+                        "instanceName": WORKBENCH_INSTANCE_NAME,
+                        "resolvedRegion": REGION,
+                        "resolvedZone": ZONE,
+                        "status": "complete"
+                    })
+                    return
+
+                elapsed += poll_interval
+                yield log_msg(f"  Provisioning in {zone_candidate}... ({elapsed}s elapsed)", "info")
+                time.sleep(poll_interval)
+            else:
+                # max_wait exceeded but no error — workbench still provisioning
+                yield log_msg(f"  ⚠ Still provisioning in {zone_candidate} (check console)", "info")
                 yield stream_sse({
-                    "log": f"Workbench ready: {WORKBENCH_INSTANCE_NAME}",
-                    "type": "success",
+                    "log": f"Workbench provisioning in progress ({ZONE})",
+                    "type": "info",
                     "workbenchUrl": workbench_url,
-                    "jupyterUrl": jupyter_url,
                     "instanceName": WORKBENCH_INSTANCE_NAME,
+                    "resolvedRegion": REGION,
+                    "resolvedZone": ZONE,
                     "status": "complete"
                 })
                 return
-            
-            elapsed += poll_interval
-            yield log_msg(f"  Provisioning... ({elapsed}s elapsed)", "info")
-            time.sleep(poll_interval)
-        
-        yield log_msg("  ⚠ Workbench still provisioning (check console)", "info")
-        yield stream_sse({
-            "log": f"Workbench provisioning in progress",
-            "type": "info",
-            "workbenchUrl": workbench_url,
-            "instanceName": WORKBENCH_INSTANCE_NAME,
-            "status": "complete"
-        })
-        
+
+        # All zones exhausted
+        yield step_error(f"All {len(PREFERRED_ZONES)} zones stocked out. No A100 capacity available.")
+
     except Exception as e:
         print(f"[ERROR] Workbench provisioning failed: {str(e)}")
         yield step_error(str(e))

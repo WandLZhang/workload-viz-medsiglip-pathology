@@ -101,8 +101,8 @@ interface ProjectConfig {
 const DEFAULT_CONFIG: ProjectConfig = {
   projectId: '',
   bucketName: '',
-  region: 'europe-west4',
-  zone: 'europe-west4-a',
+  region: 'asia-northeast3',
+  zone: 'asia-northeast3-b',
   serviceAccountName: 'medsiglip-pipeline-sa',
   workbenchInstanceName: 'medsiglip-researcher-workbench',
   consoleBaseUrl: 'https://console.cloud.google.com',
@@ -711,13 +711,24 @@ const WorkloadFlowInner: React.FC<WorkloadFlowInnerProps> = ({ onComplete }) => 
       if (!success) break;
     }
 
-    // Provision workbench
+    // Provision workbench (may resolve to a different zone via fallback)
     if (!abortController.signal.aborted) {
       const success = await runStep('provision-workbench', 'Provision Workbench', abortController.signal);
       if (!success) { 
         setIsRunning(false); 
         return; 
       }
+    }
+
+    // Re-fetch config after workbench provisioning — backend may have resolved
+    // to a different zone via STOCKOUT fallback, updating REGION/ZONE globals
+    try {
+      const configRes = await fetch('/api/config');
+      const newConfig = await configRes.json();
+      console.log('[CONFIG] Re-fetched after workbench:', JSON.stringify(newConfig, null, 2));
+      setConfig(newConfig);
+    } catch (err) {
+      console.error('[CONFIG] Failed to re-fetch config after workbench:', err);
     }
 
     // After workbench is provisioned, STOP and enter monitoring mode

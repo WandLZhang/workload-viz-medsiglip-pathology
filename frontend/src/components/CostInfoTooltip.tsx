@@ -31,7 +31,7 @@ interface CostLineItem {
 const GPU_SKUS: SkuInfo[] = [
   {
     skuId: 'A972-1DF4-4F6E',
-    description: 'NVIDIA A100 40GB GPU (On-Demand, Europe)',
+    description: 'NVIDIA A100 40GB GPU (On-Demand)',
     price: '$2.934',
     unit: 'GPU-hour',
   },
@@ -55,7 +55,7 @@ const COMPUTE_SKUS: SkuInfo[] = [
 const STORAGE_SKUS: SkuInfo[] = [
   {
     skuId: 'E5F0-6A5D-7BAD',
-    description: 'Standard Storage EU Regional',
+    description: 'Standard Storage (Regional)',
     price: '$0.02',
     unit: 'GiB/month',
   },
