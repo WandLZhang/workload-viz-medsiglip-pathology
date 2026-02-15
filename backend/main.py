@@ -575,11 +575,6 @@ def execute_provision_workbench():
 set -e
 echo "=== MedSigLIP A100 Workbench Setup ==="
 nvidia-smi || echo "WARNING: nvidia-smi not found, GPU drivers may need install"
-pip install --upgrade pip
-pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124
-pip install transformers datasets huggingface_hub accelerate evaluate
-pip install google-cloud-aiplatform google-cloud-storage
-pip install scikit-learn matplotlib pillow tqdm
 mkdir -p /home/jupyter/medsiglip-workspace
 
 # Create the MedSigLIP pathology notebook
@@ -589,7 +584,7 @@ cat > /home/jupyter/medsiglip-workspace/MedSigLIP_Pathology_Pipeline.ipynb << 'N
     {{
       "cell_type": "markdown",
       "metadata": {{}},
-      "source": ["# MedSigLIP Pathology Pipeline (All-Local on A100)\\n", "\\n", "This notebook runs the complete MedSigLIP pipeline locally on GPU:\\n", "1. Load model from HuggingFace\\n", "2. Download NCT-CRC-HE-100K dataset\\n", "3. Zero-shot baseline on CRC-VAL-HE-7K\\n", "4. Fine-tune with HuggingFace Trainer\\n", "5. Evaluate & compare pretrained vs fine-tuned\\n", "\\n", "Based on: https://github.com/google-health/medsiglip/blob/main/notebooks/fine_tune_with_hugging_face.ipynb"]
+      "source": ["# MedSigLIP Pathology Pipeline on A100\\n", "\\n", "This notebook runs the complete MedSigLIP pipeline on GPU:\\n", "1. Load model from HuggingFace\\n", "2. Download NCT-CRC-HE-100K dataset\\n", "3. Zero-shot baseline on CRC-VAL-HE-7K\\n", "4. Fine-tune with HuggingFace Trainer\\n", "5. Evaluate & compare pretrained vs fine-tuned\\n", "\\n", "Based on: https://github.com/google-health/medsiglip/blob/main/notebooks/fine_tune_with_hugging_face.ipynb"]
     }},
     {{
       "cell_type": "markdown",
@@ -601,24 +596,19 @@ cat > /home/jupyter/medsiglip-workspace/MedSigLIP_Pathology_Pipeline.ipynb << 'N
       "execution_count": null,
       "metadata": {{}},
       "outputs": [],
-      "source": ["import torch\\n", "print(f\\"GPU: {{torch.cuda.get_device_name(0)}}\\")", "\\n", "print(f\\"VRAM: {{torch.cuda.get_device_properties(0).total_mem / 1e9:.1f}} GB\\")", "\\n", "assert torch.cuda.is_available(), \\"No GPU found!\\"\\n", "\\n", "PROJECT_ID = \\"{PROJECT_ID}\\"\\n", "BUCKET_NAME = \\"{BUCKET_NAME}\\""]
-    }},
-    {{
-      "cell_type": "markdown",
-      "metadata": {{}},
-      "source": ["## Step 2: HuggingFace Auth & Load MedSigLIP"]
+      "source": ["!pip install -q --upgrade torch torchvision --index-url https://download.pytorch.org/whl/cu124\\n", "!pip install -q --force-reinstall \\"transformers==4.45.2\\"\\n", "!pip install -q datasets huggingface_hub accelerate evaluate\\n", "!pip install -q google-cloud-aiplatform google-cloud-storage\\n", "!pip install -q scikit-learn matplotlib pillow tqdm\\n", "!pip install -q sentencepiece protobuf\\n", "\\n", "# After finishes, restart kernel"]
     }},
     {{
       "cell_type": "code",
       "execution_count": null,
       "metadata": {{}},
       "outputs": [],
-      "source": ["from huggingface_hub import get_token\\n", "if get_token() is None:\\n", "    from huggingface_hub import notebook_login\\n", "    notebook_login()\\n", "\\n", "from transformers import AutoProcessor, AutoModel\\n", "\\n", "model_id = \\"google/medsiglip-448\\"\\n", "model = AutoModel.from_pretrained(model_id)\\n", "processor = AutoProcessor.from_pretrained(model_id)\\n", "print(f\\"Loaded {{model_id}}\\")"]
+      "source": ["import torch\\n", "print(f\\"GPU: {{torch.cuda.get_device_name(0)}}\\")", "\\n", "print(f\\"VRAM: {{torch.cuda.get_device_properties(0).total_memory / 1e9:.1f}} GB\\")", "\\n", "assert torch.cuda.is_available(), \\"No GPU found!\\"\\n", "\\n", "PROJECT_ID = \\"{PROJECT_ID}\\"\\n", "BUCKET_NAME = \\"{BUCKET_NAME}\\""]
     }},
     {{
       "cell_type": "markdown",
       "metadata": {{}},
-      "source": ["## Step 3: Create GCS Bucket"]
+      "source": ["## Step 2: Create GCS Bucket"]
     }},
     {{
       "cell_type": "code",
@@ -630,6 +620,18 @@ cat > /home/jupyter/medsiglip-workspace/MedSigLIP_Pathology_Pipeline.ipynb << 'N
     {{
       "cell_type": "markdown",
       "metadata": {{}},
+      "source": ["## Step 3: HuggingFace Auth & Load MedSigLIP"]
+    }},
+    {{
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {{}},
+      "outputs": [],
+      "source": ["# Retrieve read token from https://huggingface.co/settings/tokens\\n", "\\n", "from huggingface_hub import get_token\\n", "if get_token() is None:\\n", "    from huggingface_hub import notebook_login\\n", "    notebook_login()\\n", "\\n", "from transformers import SiglipProcessor, SiglipModel\\n", "\\n", "model_id = \\"google/medsiglip-448\\"\\n", "model = SiglipModel.from_pretrained(model_id)\\n", "processor = SiglipProcessor.from_pretrained(model_id)\\n", "print(f\\"Loaded {{model_id}}\\")\\n", "\\n", "# Write status marker\\n", "import json, datetime\\n", "from google.cloud import storage as gcs\\n", "client = gcs.Client()\\n", "bucket = client.bucket(\\"{BUCKET_NAME}\\")\\n", "bucket.blob(\\"status/load-model.json\\").upload_from_string(\\n", "    json.dumps({{\\"step\\": \\"load-model\\", \\"status\\": \\"complete\\", \\"timestamp\\": datetime.datetime.now().isoformat()}})\\n", ")"]
+    }},
+    {{
+      "cell_type": "markdown",
+      "metadata": {{}},
       "source": ["## Step 4: Download NCT-CRC-HE-100K + CRC-VAL-HE-7K"]
     }},
     {{
@@ -637,7 +639,7 @@ cat > /home/jupyter/medsiglip-workspace/MedSigLIP_Pathology_Pipeline.ipynb << 'N
       "execution_count": null,
       "metadata": {{}},
       "outputs": [],
-      "source": ["!wget -nc -q \\"https://zenodo.org/records/1214456/files/NCT-CRC-HE-100K.zip\\"\\n", "!wget -nc -q \\"https://zenodo.org/records/1214456/files/CRC-VAL-HE-7K.zip\\"\\n", "!unzip -qn NCT-CRC-HE-100K.zip\\n", "!unzip -qn CRC-VAL-HE-7K.zip\\n", "print(\\"Datasets downloaded and extracted.\\")"]
+      "source": ["!wget -nc -q \\"https://zenodo.org/records/1214456/files/NCT-CRC-HE-100K.zip\\"\\n", "!wget -nc -q \\"https://zenodo.org/records/1214456/files/CRC-VAL-HE-7K.zip\\"\\n", "!unzip -qn NCT-CRC-HE-100K.zip\\n", "!unzip -qn CRC-VAL-HE-7K.zip\\n", "print(\\"Datasets downloaded and extracted.\\")\\n", "\\n", "# Write status marker\\n", "bucket.blob(\\"status/download-dataset.json\\").upload_from_string(\\n", "    json.dumps({{\\"step\\": \\"download-dataset\\", \\"status\\": \\"complete\\", \\"timestamp\\": datetime.datetime.now().isoformat()}})\\n", ")"]
     }},
     {{
       "cell_type": "markdown",
@@ -661,7 +663,7 @@ cat > /home/jupyter/medsiglip-workspace/MedSigLIP_Pathology_Pipeline.ipynb << 'N
       "execution_count": null,
       "metadata": {{}},
       "outputs": [],
-      "source": ["import io, evaluate\\n", "from PIL import Image\\n", "\\n", "test_data = load_dataset(\\"./CRC-VAL-HE-7K\\", split=\\"train\\")\\n", "test_data = test_data.shuffle(seed=42).select(range(1000))\\n", "test_batches = test_data.batch(batch_size=64)\\n", "\\n", "accuracy_metric = evaluate.load(\\"accuracy\\")\\n", "f1_metric = evaluate.load(\\"f1\\")\\n", "REFERENCES = test_data[\\"label\\"]\\n", "\\n", "def compute_metrics(predictions):\\n", "    metrics = {{}}\\n", "    metrics.update(accuracy_metric.compute(predictions=predictions, references=REFERENCES))\\n", "    metrics.update(f1_metric.compute(predictions=predictions, references=REFERENCES, average=\\"weighted\\"))\\n", "    return metrics\\n", "\\n", "pt_model = AutoModel.from_pretrained(model_id, device_map=\\"auto\\")\\n", "pt_predictions = []\\n", "for batch in test_batches:\\n", "    images = [Image.open(io.BytesIO(image[\\"bytes\\"])) for image in batch[\\"image\\"]]\\n", "    inputs = processor(text=TISSUE_CLASSES, images=images, padding=\\"max_length\\", return_tensors=\\"pt\\").to(\\"cuda\\")\\n", "    with torch.no_grad():\\n", "        outputs = pt_model(**inputs)\\n", "    pt_predictions.extend(outputs.logits_per_image.argmax(axis=1).tolist())\\n", "\\n", "pt_metrics = compute_metrics(pt_predictions)\\n", "print(f\\"Pretrained baseline: {{pt_metrics}}\\")"]
+      "source": ["import io, evaluate\\n", "from PIL import Image\\n", "\\n", "test_data = load_dataset(\\"./CRC-VAL-HE-7K\\", split=\\"train\\")\\n", "test_data = test_data.shuffle(seed=42).select(range(1000))\\n", "test_batches = test_data.batch(batch_size=64)\\n", "\\n", "accuracy_metric = evaluate.load(\\"accuracy\\")\\n", "f1_metric = evaluate.load(\\"f1\\")\\n", "REFERENCES = test_data[\\"label\\"]\\n", "\\n", "def compute_metrics(predictions):\\n", "    metrics = {{}}\\n", "    metrics.update(accuracy_metric.compute(predictions=predictions, references=REFERENCES))\\n", "    metrics.update(f1_metric.compute(predictions=predictions, references=REFERENCES, average=\\"weighted\\"))\\n", "    return metrics\\n", "\\n", "pt_model = SiglipModel.from_pretrained(model_id, device_map=\\"auto\\")\\n", "pt_predictions = []\\n", "for batch in test_batches:\\n", "    images = [Image.open(io.BytesIO(image[\\"bytes\\"])) for image in batch[\\"image\\"]]\\n", "    inputs = processor(text=TISSUE_CLASSES, images=images, padding=\\"max_length\\", return_tensors=\\"pt\\").to(\\"cuda\\")\\n", "    with torch.no_grad():\\n", "        outputs = pt_model(**inputs)\\n", "    pt_predictions.extend(outputs.logits_per_image.argmax(axis=1).tolist())\\n", "\\n", "pt_metrics = compute_metrics(pt_predictions)\\n", "print(f\\"Pretrained baseline: {{pt_metrics}}\\")"]
     }},
     {{
       "cell_type": "markdown",
@@ -673,7 +675,7 @@ cat > /home/jupyter/medsiglip-workspace/MedSigLIP_Pathology_Pipeline.ipynb << 'N
       "execution_count": null,
       "metadata": {{}},
       "outputs": [],
-      "source": ["from transformers import TrainingArguments, Trainer\\n", "\\n", "def collate_fn(examples):\\n", "    pixel_values = torch.tensor([ex[\\"pixel_values\\"] for ex in examples])\\n", "    input_ids = torch.tensor([ex[\\"input_ids\\"] for ex in examples])\\n", "    attention_mask = torch.tensor([ex[\\"attention_mask\\"] for ex in examples])\\n", "    return {{\\"pixel_values\\": pixel_values, \\"input_ids\\": input_ids, \\"attention_mask\\": attention_mask, \\"return_loss\\": True}}\\n", "\\n", "training_args = TrainingArguments(\\n", "    output_dir=\\"medsiglip-448-ft-crc100k\\",\\n", "    num_train_epochs=2,\\n", "    per_device_train_batch_size=8,\\n", "    per_device_eval_batch_size=8,\\n", "    gradient_accumulation_steps=8,\\n", "    logging_steps=50,\\n", "    save_strategy=\\"epoch\\",\\n", "    eval_strategy=\\"steps\\",\\n", "    eval_steps=50,\\n", "    learning_rate=1e-4,\\n", "    weight_decay=0.01,\\n", "    warmup_steps=5,\\n", "    lr_scheduler_type=\\"cosine\\",\\n", "    push_to_hub=False,\\n", "    report_to=\\"tensorboard\\",\\n", ")\\n", "\\n", "trainer = Trainer(\\n", "    model=model,\\n", "    args=training_args,\\n", "    train_dataset=data[\\"train\\"],\\n", "    eval_dataset=data[\\"validation\\"].shuffle().select(range(200)),\\n", "    data_collator=collate_fn,\\n", ")\\n", "\\n", "trainer.train()\\n", "trainer.save_model()\\n", "print(\\"Fine-tuning complete! Model saved to medsiglip-448-ft-crc100k/\\")"]
+      "source": ["from transformers import TrainingArguments, Trainer\\n", "\\n", "def collate_fn(examples):\\n", "    pixel_values = torch.tensor([ex[\\"pixel_values\\"] for ex in examples])\\n", "    input_ids = torch.tensor([ex[\\"input_ids\\"] for ex in examples])\\n", "    attention_mask = torch.tensor([ex[\\"attention_mask\\"] for ex in examples])\\n", "    return {{\\"pixel_values\\": pixel_values, \\"input_ids\\": input_ids, \\"attention_mask\\": attention_mask, \\"return_loss\\": True}}\\n", "\\n", "training_args = TrainingArguments(\\n", "    output_dir=\\"medsiglip-448-ft-crc100k\\",\\n", "    num_train_epochs=2,\\n", "    per_device_train_batch_size=8,\\n", "    per_device_eval_batch_size=8,\\n", "    gradient_accumulation_steps=8,\\n", "    logging_steps=50,\\n", "    save_strategy=\\"epoch\\",\\n", "    eval_strategy=\\"steps\\",\\n", "    eval_steps=50,\\n", "    learning_rate=1e-4,\\n", "    weight_decay=0.01,\\n", "    warmup_steps=5,\\n", "    lr_scheduler_type=\\"cosine\\",\\n", "    push_to_hub=False,\\n", "    report_to=\\"tensorboard\\",\\n", ")\\n", "\\n", "trainer = Trainer(\\n", "    model=model,\\n", "    args=training_args,\\n", "    train_dataset=data[\\"train\\"],\\n", "    eval_dataset=data[\\"validation\\"].shuffle().select(range(200)),\\n", "    data_collator=collate_fn,\\n", ")\\n", "\\n", "trainer.train()\\n", "trainer.save_model()\\n", "print(\\"Fine-tuning complete! Model saved to medsiglip-448-ft-crc100k/\\")\\n", "\\n", "# Write status marker\\n", "bucket.blob(\\"status/fine-tune.json\\").upload_from_string(\\n", "    json.dumps({{\\"step\\": \\"fine-tune\\", \\"status\\": \\"complete\\", \\"timestamp\\": datetime.datetime.now().isoformat()}})\\n", ")"]
     }},
     {{
       "cell_type": "markdown",
@@ -685,7 +687,7 @@ cat > /home/jupyter/medsiglip-workspace/MedSigLIP_Pathology_Pipeline.ipynb << 'N
       "execution_count": null,
       "metadata": {{}},
       "outputs": [],
-      "source": ["ft_model = AutoModel.from_pretrained(\\"medsiglip-448-ft-crc100k\\", device_map=\\"auto\\")\\n", "\\n", "ft_predictions = []\\n", "for batch in test_batches:\\n", "    images = [Image.open(io.BytesIO(image[\\"bytes\\"])) for image in batch[\\"image\\"]]\\n", "    inputs = processor(text=TISSUE_CLASSES, images=images, padding=\\"max_length\\", return_tensors=\\"pt\\").to(\\"cuda\\")\\n", "    with torch.no_grad():\\n", "        outputs = ft_model(**inputs)\\n", "    ft_predictions.extend(outputs.logits_per_image.argmax(axis=1).tolist())\\n", "\\n", "ft_metrics = compute_metrics(ft_predictions)\\n", "print(f\\"Pretrained: {{pt_metrics}}\\")\\n", "print(f\\"Fine-tuned: {{ft_metrics}}\\")\\n", "print(f\\"Accuracy improvement: {{ft_metrics['accuracy'] - pt_metrics['accuracy']:.4f}}\\")"]
+      "source": ["# Re-create test batches (iterator was consumed in baseline eval)\n", "test_data = load_dataset(\"./CRC-VAL-HE-7K\", split=\"train\")\n", "test_data = test_data.shuffle(seed=42).select(range(1000))\n", "test_batches = test_data.batch(batch_size=64)\n", "REFERENCES = test_data[\"label\"]\n", "\n", "ft_model = SiglipModel.from_pretrained(\\"medsiglip-448-ft-crc100k\\", device_map=\\"auto\\")\\n", "\\n", "ft_predictions = []\\n", "for batch in test_batches:\\n", "    images = [Image.open(io.BytesIO(image[\\"bytes\\"])) for image in batch[\\"image\\"]]\\n", "    inputs = processor(text=TISSUE_CLASSES, images=images, padding=\\"max_length\\", return_tensors=\\"pt\\").to(\\"cuda\\")\\n", "    with torch.no_grad():\\n", "        outputs = ft_model(**inputs)\\n", "    ft_predictions.extend(outputs.logits_per_image.argmax(axis=1).tolist())\\n", "\\n", "ft_metrics = compute_metrics(ft_predictions)\\n", "print(f\\"Pretrained: {{pt_metrics}}\\")\\n", "print(f\\"Fine-tuned: {{ft_metrics}}\\")\\n", "print(f\\"Accuracy improvement: {{ft_metrics['accuracy'] - pt_metrics['accuracy']:.4f}}\\")"]
     }},
     {{
       "cell_type": "markdown",
