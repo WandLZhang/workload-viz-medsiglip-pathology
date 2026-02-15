@@ -1,39 +1,31 @@
 # 🔬 MedSigLIP Pathology Workload Visualizer
 
-Interactive workload visualization for deploying [MedSigLIP](https://cloud.google.com/vertex-ai/generative-ai/docs/model-garden/medsiglip-model-card) — Google's medical foundation model for pathology — on Google Cloud. Provisions infrastructure, deploys the model to Vertex AI, generates image/text embeddings, runs zero-shot tissue classification, fine-tunes on NCT-CRC-HE-100K, and evaluates on CRC-VAL-HE-7K.
+Interactive workload visualization for deploying [MedSigLIP](https://cloud.google.com/vertex-ai/generative-ai/docs/model-garden/medsiglip-model-card) — Google's medical foundation model for pathology — on Google Cloud.
 
-## Quick Start
+The visualizer provisions GCP infrastructure (APIs, IAM, VPC, Cloud NAT, Workbench), then monitors a researcher's notebook as it loads the model, downloads datasets, fine-tunes on NCT-CRC-HE-100K, and saves results to GCS.
 
-### 1. Prerequisites
+## Prerequisites
 
 - **Google Cloud project** with billing enabled
-- **gcloud CLI** authenticated with Application Default Credentials
+- **gcloud CLI** installed and authenticated
 - **Node.js** ≥ 18 and **Python** ≥ 3.10
 
-### 2. Configure Your Project
+## Setup & Run
 
-All project-specific values are driven by environment variables. **Export these before starting the backend:**
+### 1. Export environment variables
 
 ```bash
-# Required — your GCP project ID
 export GCP_PROJECT_ID="your-project-id"
 
-# Optional — override defaults if needed
-export GCP_REGION="us-central1"                          # default: us-central1
-export SERVICE_ACCOUNT_NAME="medsiglip-pipeline-sa"      # default: medsiglip-pipeline-sa
-export WORKBENCH_INSTANCE_NAME="medsiglip-researcher-workbench"  # default: medsiglip-researcher-workbench
+# Optional — override defaults
+export GCP_REGION="asia-northeast3"
+export SERVICE_ACCOUNT_NAME="medsiglip-pipeline-sa"
+export WORKBENCH_INSTANCE_NAME="medsiglip-researcher-workbench"
 ```
 
 The bucket name is automatically derived as `${GCP_PROJECT_ID}-bucket`.
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `GCP_PROJECT_ID` | `wz-workload-viz-medsiglip` | Your GCP project ID |
-| `GCP_REGION` | `us-central1` | Region for all resources |
-| `SERVICE_ACCOUNT_NAME` | `medsiglip-pipeline-sa` | SA name for pipeline workloads |
-| `WORKBENCH_INSTANCE_NAME` | `medsiglip-researcher-workbench` | Vertex AI Workbench instance name |
-
-### 3. Authenticate to GCP
+### 2. Authenticate to GCP
 
 ```bash
 gcloud auth login
@@ -41,57 +33,60 @@ gcloud auth application-default login
 gcloud config set project $GCP_PROJECT_ID
 ```
 
-
-
-## Architecture
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│  Frontend (React + ReactFlow)                                   │
-│  Fetches /api/config → all URLs and project IDs are dynamic    │
-├─────────────────────────────────────────────────────────────────┤
-│  Backend (Flask)                                                │
-│  Reads env vars → provisions GCP infra → polls Vertex AI       │
-├─────────────────────────────────────────────────────────────────┤
-│  Google Cloud                                                   │
-│  Vertex AI • Cloud Storage • Compute • IAM • Healthcare API    │
-└─────────────────────────────────────────────────────────────────┘
-```
-
-## Pipeline Steps
-
-| # | Step | Actor | Description |
-|---|------|-------|-------------|
-| 1 | Enable APIs | IT | Vertex AI, Compute, Healthcare, IAM, Org Policy |
-| 2 | Create Service Account | IT | `medsiglip-pipeline-sa` with 5 IAM roles |
-| 3 | IAM Roles | IT | `aiplatform.user`, `storage.admin`, `batch.jobsEditor`, etc. |
-| 4 | Org Policies | IT | Shielded VM + trusted image project exceptions |
-| 5 | VPC Network | IT | Default VPC + firewall + Private Google Access |
-| 6 | Cloud NAT | IT | Outbound internet for private VMs |
-| 7 | Provision Workbench | IT | Vertex AI Workbench with GPU + startup script |
-| 8 | Storage Bucket | Researcher | `gs://${PROJECT_ID}-bucket` for images, embeddings, checkpoints |
-| 9 | Deploy MedSigLIP | Researcher | Model Garden → Vertex AI Endpoint (T4 GPU) |
-| 10 | Generate Embeddings | Researcher | 768-dim image + text vectors via predict API |
-| 11 | Zero-Shot Classification | Researcher | Text-prompt tissue classification (9 classes) |
-| 12 | Fine-Tune Model | Researcher | HuggingFace Trainer on NCT-CRC-HE-100K |
-| 13 | Evaluate Model | Researcher | Accuracy + F1 on CRC-VAL-HE-7K |
-
-To use this template with your own project:
+### 3. Start the backend
 
 ```bash
-# 1. Clone the repo
-git clone <this-repo-url>
-cd workload-viz-medsiglip-pathology
-
-# 2. Export YOUR project ID
-export GCP_PROJECT_ID="my-team-project-id"
-
-# 3. Authenticate
-gcloud auth application-default login
-
-# 4. Start backend + frontend
-cd backend && source venv/bin/activate && python main.py &
-cd ../frontend && npm run dev
+cd backend
+python -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+python main.py
 ```
 
-That's it. The frontend automatically fetches your project config from the backend's `/api/config` endpoint. No code changes needed.
+Backend runs on `http://localhost:5000`.
+
+### 4. Start the frontend
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Frontend runs on `http://localhost:5173`. Open it in your browser.
+
+### 5. Run the workflow
+
+Click **Run Workflow** in the UI. The visualizer will:
+
+1. **IT Infra** (automated): Enable APIs → Create SA → IAM Roles → Org Policies → Create VPC → Cloud NAT
+2. **Provision Workbench**: Creates a Vertex AI Workbench instance with A100 GPU (tries multiple zones on stockout)
+3. **Enter Monitoring Mode**: The UI starts polling GCS for researcher progress
+
+### 6. Work in the notebook
+
+After the workbench is provisioned (~10 min), wait ~30 minutes for the startup script to finish and the notebook to hydrate. Then:
+
+1. Open the Workbench in the GCP Console (link shown in the UI)
+2. **Install NVIDIA driver**: Open a terminal in the notebook and say 'y' to installing nvidia driver
+3. Open `medsiglip-workspace/MedSigLIP_Pathology_Pipeline.ipynb`
+4. Run the cells in order:
+   - **Step 1**: Install dependencies (pip install), then **restart the kernel**
+   - **Step 2**: Create GCS bucket
+   - **Step 3**: Load MedSigLIP (writes `status/load-model.json` marker → UI updates)
+   - **Step 4**: Download dataset (writes `status/download-dataset.json` marker → UI updates)
+   - **Step 5–6**: Prepare data & zero-shot baseline
+   - **Step 7**: Fine-tune (writes `status/fine-tune.json` marker → UI updates)
+   - **Step 8**: Evaluate fine-tuned model
+   - **Step 9**: Save results to GCS (UI detects `results/` + `medsiglip-finetune/` artifacts)
+
+The frontend monitors GCS markers and artifact prefixes, updating the flow visualization in real-time as each notebook cell completes.
+
+## Pipeline Flow
+
+```
+IT Infra (6 steps)
+    ↓
+Provision Workbench → Storage Bucket → ┬─ Load MedSigLIP ──┬→ Fine-Tune → Save Results to Bucket
+                                       └─ Download Dataset ─┘
+```
