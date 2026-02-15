@@ -137,9 +137,9 @@ const WorkloadFlowInner: React.FC<WorkloadFlowInnerProps> = ({ onComplete }) => 
   const INFRA_START_Y = 30;
   const INFRA_Y_GAP = 90;
   
-  // Workbench: below infra column
+  // Workbench: below infra column (extra gap so researcher box doesn't overlap IT box)
   const WORKBENCH_X = INFRA_START_X;
-  const WORKBENCH_Y = INFRA_START_Y + INFRA_STEPS.length * INFRA_Y_GAP + 80;
+  const WORKBENCH_Y = INFRA_START_Y + INFRA_STEPS.length * INFRA_Y_GAP + 180;
   
   // Storage Bucket: directly to the right of workbench, same Y level
   const HORIZONTAL_GAP = 450;  // Gap for 400px nodes
