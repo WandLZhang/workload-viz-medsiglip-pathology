@@ -25,52 +25,48 @@ const nodeTypes = {
 };
 
 const GCP_DIFFERENTIATORS: Record<string, string> = {
-  'deploy-endpoint': `🚀 Model Garden One-Click Deploy:
-• Deploy MedSigLIP (medsiglip-448) directly from Vertex AI Model Garden
-• Pre-configured serving container with 448×448 medical image support
-• Dedicated endpoint with auto-scaling and per-second billing
-• T4 GPU inference at ~$0.35/hr (Spot: ~$0.11/hr)
-• Other clouds: manually build container, configure GPU drivers, set up LB`,
-  'generate-embeddings': `🧬 768-dim Contrastive Embeddings:
-• Supports GCS URIs, DICOMweb URIs, or base64 image bytes as input
-• Native Healthcare API integration — feed DICOM URIs directly
-• Online prediction for real-time, batch prediction for large-scale
-• Batch: submit JSONL with 100K images, auto-provisioned T4 GPUs
-• Per-second billing with no minimum runtime`,
-  'zero-shot': `🎯 Zero-Shot Classification:
-• Classify pathology images with text prompts — no training data needed
-• Measures cosine distance between image and text embeddings
-• 9 tissue classes from NCT-CRC-HE histopathology dataset
-• Outperforms data-efficient methods at low label counts
-• No additional compute or model training required`,
-  'fine-tune': `🔧 Contrastive Fine-Tuning:
-• Joint vision + text encoder training with HF Trainer
-• NCT-CRC-HE-100K dataset (100K histopathology patches)
-• ~3 hours on A100 GPU (40GB+ VRAM required)
-• Spot VMs reduce A100 cost from $2.93/hr to $0.88/hr (70% savings)
-• Checkpoints saved to GCS, push to HuggingFace Hub`,
-  'evaluate-model': `📊 Model Evaluation:
-• CRC-VAL-HE-7K test set (no overlap with training data)
-• Accuracy + weighted F1 metrics
-• Compare pretrained vs fine-tuned zero-shot performance
-• Integrated with Vertex AI Experiments for tracking runs
-• Reproducible evaluation with fixed seeds`,
-  'provision-workbench': `🔬 Vertex AI Workbench:
-• Fully managed JupyterLab with GPU support (T4/A100)
-• Pre-installed: transformers, torch, google-cloud-aiplatform
-• Secure access via IAP — no public IP required
-• Integrated with GCS for seamless data access
-• Cost: ~$0.19/hr for n1-standard-4 (+ GPU add-on)`,
-  'storage-bucket': `📦 Cloud Storage for Medical AI:
-• Store DICOM images, embeddings, and fine-tuned checkpoints
-• DICOMweb URIs flow directly into MedSigLIP predict API
-• Fastest time-to-first-byte among all cloud storage providers
-• Data encrypted by default with CMEK available
+  'deploy-endpoint': `🧠 Why GCP — Model Garden:
+• MedSigLIP is a Google-developed model — available exclusively in Vertex AI Model Garden
+• One-click from Model Garden → running on GPU, no container building
+• AWS/Azure: model not available; you'd manually download, containerize, deploy
+• HuggingFace weights available but GCP gets optimized serving containers first`,
+  'generate-embeddings': `📥 Why GCP — Healthcare API Integration:
+• Native DICOMweb URIs flow directly into MedSigLIP — no format conversion
+• Healthcare API stores DICOM natively; AWS HealthLake requires FHIR conversion
+• GCS supports composite uploads for large pathology slides (up to 5 TiB objects)
+• Batch prediction: submit 100K images as JSONL, auto-provisioned GPUs
+• Azure: no native DICOM → embedding pipeline; requires custom orchestration`,
+  'zero-shot': `🎯 Why GCP — Zero-Shot on Medical Data:
+• MedSigLIP trained on medical image-text pairs — not general-purpose CLIP
+• Outperforms OpenAI CLIP and BiomedCLIP on pathology benchmarks
+• No equivalent medical foundation model available on AWS or Azure
+• Text-prompt classification: no labeled training data needed`,
+  'fine-tune': `🔧 Why GCP — GPU Availability & Cost:
+• A100 40GB on-demand: $2.93/hr (GCP) vs $3.67/hr (AWS p4d) vs $3.40/hr (Azure)
+• Spot/Preemptible A100: $0.88/hr — 70% savings, best spot pricing among clouds
+• Per-second billing (GCP) vs per-hour billing (AWS)
+• Cloud NAT + no public IP: secure fine-tuning without internet exposure
+• Checkpoints stream directly to GCS — no S3 gateway or egress config needed`,
+  'evaluate-model': `📊 Why GCP — Experiment Tracking:
+• Vertex AI Experiments: native run tracking with lineage to model artifacts
+• Results auto-linked to GCS bucket, model registry, and training job
+• AWS SageMaker Experiments exists but lacks model lineage integration
+• Azure ML: experiment tracking requires separate workspace configuration`,
+  'provision-workbench': `🔬 Why GCP — Vertex AI Workbench:
+• Managed JupyterLab with IAP auth — zero-config secure access, no SSH tunnels
+• GPU hot-attach: resize from CPU to A100 without recreating the instance
+• Pre-authenticated to all GCP services (GCS, Vertex AI, BigQuery) — no credential files
+• AWS SageMaker Studio: cold starts of 3-5 min; Workbench boots in ~90s
+• Azure ML Compute: requires VNet peering for private access; GCP uses IAP natively`,
+  'storage-bucket': `📦 Why GCP — Cloud Storage:
+• Fastest time-to-first-byte among all cloud object stores (independent benchmarks)
+• Strong consistency on all operations — no eventual consistency surprises
+• DICOMweb URIs addressable directly from Healthcare API → MedSigLIP
 
 🌐 Dual-Region Storage:
-• Single bucket namespace spanning two regions
-• Strong consistency with RTO of zero
-• Other clouds require separate buckets with eventual consistency`,
+• Single bucket namespace spanning two regions with zero RTO
+• AWS: requires separate buckets + cross-region replication (eventual consistency)
+• Azure: GRS replication has 15-minute RPO, not zero`,
 };
 
 // Infrastructure setup steps (platform team) - vertical column on left
@@ -141,24 +137,18 @@ const WorkloadFlowInner: React.FC<WorkloadFlowInnerProps> = ({ onComplete }) => 
   const INFRA_START_Y = 30;
   const INFRA_Y_GAP = 90;
   
-  // IAM Roles Y position (index 2) - Launch Pipeline aligns with this
-  const IAM_ROLES_Y = INFRA_START_Y + 2 * INFRA_Y_GAP;  // = 210
-  
-  // Workbench: below VPC Network, left-aligned with infra column
+  // Workbench: below infra column
   const WORKBENCH_X = INFRA_START_X;
   const WORKBENCH_Y = INFRA_START_Y + INFRA_STEPS.length * INFRA_Y_GAP + 80;
   
   // Storage Bucket: directly to the right of workbench, same Y level
-  const BUCKET_X = WORKBENCH_X + 450;  // Gap for 400px nodes
+  const HORIZONTAL_GAP = 450;  // Gap for 400px nodes
+  const BUCKET_X = WORKBENCH_X + HORIZONTAL_GAP;
   const BUCKET_Y = WORKBENCH_Y;
   
-  // Launch Pipeline: aligned vertically with IAM Roles, same X as bucket
-  const LAUNCH_X = BUCKET_X;
-  const LAUNCH_Y = IAM_ROLES_Y;  // Center vertically with IAM Roles
-  
-  // Pipeline tasks flow to the right with spacing for 400px nodes
-  const HORIZONTAL_GAP = 450;  // Gap for 400px nodes
-  const PARALLEL_Y_GAP = 140;  // Vertical spacing between parallel tasks
+  // Pipeline tasks flow to the right of bucket
+  const PIPELINE_START_X = BUCKET_X + HORIZONTAL_GAP;
+  const PARALLEL_Y_OFFSET = 70;  // Vertical offset for parallel tasks above/below center
 
   const zoomToSetup = useCallback(() => {
     setViewport({ x: 100, y: 0, zoom: 1.2 }, { duration: 800 });
@@ -172,16 +162,16 @@ const WorkloadFlowInner: React.FC<WorkloadFlowInnerProps> = ({ onComplete }) => 
     const nodes: Node[] = [];
     
     // Calculate group box dimensions
-    const secondParallelX = LAUNCH_X + HORIZONTAL_GAP * 2;
     const nodeHeight = 80;
     const padding = 30;
     const leftPadding = 80;  // Extra left padding for edge clearance and labels
+    const saveResultsX = PIPELINE_START_X + HORIZONTAL_GAP * 2;
     
-    // IT Group Box: contains infra steps + launch pipeline + pipeline tasks
+    // IT Group Box: contains only infra steps (vertical column)
     const itBoxX = INFRA_START_X - leftPadding;
     const itBoxY = INFRA_START_Y - padding - 20;  // Extra top for label
-    const itBoxWidth = secondParallelX + 400 + padding - itBoxX + 40;  // extends to rightmost task + padding
-    const itBoxHeight = WORKBENCH_Y - itBoxY - 50;  // ends clearly above workbench row
+    const itBoxWidth = 400 + leftPadding + padding + 40;  // covers infra nodes
+    const itBoxHeight = (INFRA_STEPS.length - 1) * INFRA_Y_GAP + nodeHeight + padding * 2 + 20;
     
     nodes.push({
       id: 'group-it',
@@ -199,11 +189,11 @@ const WorkloadFlowInner: React.FC<WorkloadFlowInnerProps> = ({ onComplete }) => 
       },
     });
     
-    // Researcher Group Box: contains workbench + storage bucket
+    // Researcher Group Box: contains workbench + bucket + all pipeline nodes
     const researcherBoxX = WORKBENCH_X - leftPadding;
-    const researcherBoxY = WORKBENCH_Y - padding - 20;  // Extra top for label
-    const researcherBoxWidth = BUCKET_X + 400 + padding - researcherBoxX + 40;
-    const researcherBoxHeight = nodeHeight + padding * 2 + 20;
+    const researcherBoxY = WORKBENCH_Y - PARALLEL_Y_OFFSET - padding - 20;  // covers top parallel node
+    const researcherBoxWidth = saveResultsX + 400 + padding - researcherBoxX + 40;
+    const researcherBoxHeight = (PARALLEL_Y_OFFSET * 2) + nodeHeight + padding * 2 + 20;
     
     nodes.push({
       id: 'group-researcher',
@@ -273,63 +263,43 @@ const WorkloadFlowInner: React.FC<WorkloadFlowInnerProps> = ({ onComplete }) => 
       },
     });
 
-    // Deploy MedSigLIP Endpoint: aligned with IAM Roles row, same X as bucket
+    // Load MedSigLIP: parallel top, right of bucket
     nodes.push({
-      id: 'deploy-endpoint',
+      id: 'load-model',
       type: 'pipelineTask',
-      position: { x: LAUNCH_X, y: LAUNCH_Y },
+      position: { x: PIPELINE_START_X, y: WORKBENCH_Y - PARALLEL_Y_OFFSET },
       data: {
-        label: 'Deploy MedSigLIP',
-        command: 'medsiglip-448 → Vertex AI Endpoint',
-        icon: 'rocket_launch',
-        status: stepStatuses['deploy-endpoint']?.status || 'pending',
-        isSelected: selectedStep === 'deploy-endpoint',
-        onClick: () => setSelectedStep('deploy-endpoint'),
-        tooltip: GCP_DIFFERENTIATORS['deploy-endpoint'],
-        batchJobUrl: `${config.consoleBaseUrl}/vertex-ai/online-prediction/endpoints?project=${config.projectId}`,
+        label: 'Load MedSigLIP',
+        command: 'from_pretrained("google/medsiglip-448")',
+        icon: 'neurology',
+        status: stepStatuses['load-model']?.status || 'pending',
+        isSelected: selectedStep === 'load-model',
+        onClick: () => setSelectedStep('load-model'),
+        tooltip: GCP_DIFFERENTIATORS['load-model'],
       },
     });
 
-    // Generate Embeddings: first step after deploy
-    const firstParallelX = LAUNCH_X + HORIZONTAL_GAP;
-    
+    // Download Dataset: parallel bottom, right of bucket
     nodes.push({
-      id: 'generate-embeddings',
+      id: 'download-dataset',
       type: 'pipelineTask',
-      position: { x: firstParallelX, y: LAUNCH_Y - PARALLEL_Y_GAP / 2 - 30 },
+      position: { x: PIPELINE_START_X, y: WORKBENCH_Y + PARALLEL_Y_OFFSET },
       data: {
-        label: 'Generate Embeddings',
-        command: '768-dim image + text vectors',
-        icon: 'data_array',
-        status: stepStatuses['generate-embeddings']?.status || 'pending',
-        isSelected: selectedStep === 'generate-embeddings',
-        onClick: () => setSelectedStep('generate-embeddings'),
-        tooltip: GCP_DIFFERENTIATORS['generate-embeddings'],
-        batchJobUrl: `${config.consoleBaseUrl}/vertex-ai/online-prediction/endpoints?project=${config.projectId}`,
+        label: 'Download Dataset',
+        command: 'NCT-CRC-HE-100K from Zenodo',
+        icon: 'download',
+        status: stepStatuses['download-dataset']?.status || 'pending',
+        isSelected: selectedStep === 'download-dataset',
+        onClick: () => setSelectedStep('download-dataset'),
+        tooltip: GCP_DIFFERENTIATORS['download-dataset'],
       },
     });
 
-    // Zero-Shot Classification: parallel with embeddings
-    nodes.push({
-      id: 'zero-shot',
-      type: 'pipelineTask',
-      position: { x: firstParallelX, y: LAUNCH_Y + PARALLEL_Y_GAP / 2 + 30 },
-      data: {
-        label: 'Zero-Shot Classification',
-        command: 'Text-prompt tissue classification',
-        icon: 'category',
-        status: stepStatuses['zero-shot']?.status || 'pending',
-        isSelected: selectedStep === 'zero-shot',
-        onClick: () => setSelectedStep('zero-shot'),
-        tooltip: GCP_DIFFERENTIATORS['zero-shot'],
-      },
-    });
-
-    // Fine-Tune Model: after embeddings
+    // Fine-Tune: after both parallel tasks converge
     nodes.push({
       id: 'fine-tune',
       type: 'pipelineTask',
-      position: { x: secondParallelX, y: LAUNCH_Y - PARALLEL_Y_GAP / 2 - 30 },
+      position: { x: PIPELINE_START_X + HORIZONTAL_GAP, y: WORKBENCH_Y },
       data: {
         label: 'Fine-Tune Model',
         command: 'HF Trainer on NCT-CRC-HE-100K',
@@ -341,24 +311,25 @@ const WorkloadFlowInner: React.FC<WorkloadFlowInnerProps> = ({ onComplete }) => 
       },
     });
 
-    // Evaluate Model: after fine-tune and zero-shot
+    // Save Results to Bucket: terminal step
     nodes.push({
-      id: 'evaluate-model',
+      id: 'save-results',
       type: 'pipelineTask',
-      position: { x: secondParallelX, y: LAUNCH_Y + PARALLEL_Y_GAP / 2 + 30 },
+      position: { x: saveResultsX, y: WORKBENCH_Y },
       data: {
-        label: 'Evaluate Model',
-        command: 'Accuracy + F1 on CRC-VAL-HE-7K',
-        icon: 'assessment',
-        status: stepStatuses['evaluate-model']?.status || 'pending',
-        isSelected: selectedStep === 'evaluate-model',
-        onClick: () => setSelectedStep('evaluate-model'),
-        tooltip: GCP_DIFFERENTIATORS['evaluate-model'],
+        label: 'Save Results to Bucket',
+        command: 'Checkpoints + eval → GCS',
+        icon: 'cloud_upload',
+        status: stepStatuses['save-results']?.status || 'pending',
+        isSelected: selectedStep === 'save-results',
+        onClick: () => setSelectedStep('save-results'),
+        tooltip: GCP_DIFFERENTIATORS['save-results'],
+        batchJobUrl: `${config.consoleBaseUrl}/storage/browser/${config.bucketName}?project=${config.projectId}`,
       },
     });
 
     return nodes;
-  }, [stepStatuses, selectedStep, workbenchUrl, WORKBENCH_Y, BUCKET_Y, LAUNCH_Y]);
+  }, [stepStatuses, selectedStep, workbenchUrl, config, WORKBENCH_Y, BUCKET_Y]);
 
   const generateEdges = useCallback((): Edge[] => {
     const edges: Edge[] = [];
@@ -395,91 +366,48 @@ const WorkloadFlowInner: React.FC<WorkloadFlowInnerProps> = ({ onComplete }) => 
       style: { stroke: stepStatuses['provision-workbench']?.status === 'complete' ? '#4CAF50' : '#DADCE0', strokeWidth: 2 },
     });
 
-    // Storage Bucket (top) → Deploy Endpoint (bottom) - vertical line
-    edges.push({
-      id: 'e-bucket-deploy',
-      source: 'storage-bucket', target: 'deploy-endpoint',
-      sourceHandle: 'source-top', targetHandle: 'target-bottom',
-      type: 'straight',
-      animated: stepStatuses['storage-bucket']?.status === 'complete',
-      style: { stroke: stepStatuses['storage-bucket']?.status === 'complete' ? '#4CAF50' : '#DADCE0', strokeWidth: 2 },
-    });
-
-    // Deploy Endpoint → Generate Embeddings and Zero-Shot (parallel)
-    ['generate-embeddings', 'zero-shot'].forEach(taskId => {
+    // Storage Bucket → Load MedSigLIP (parallel fan-out)
+    ['load-model', 'download-dataset'].forEach(taskId => {
       const isRunning = stepStatuses[taskId]?.status === 'running';
       const isComplete = stepStatuses[taskId]?.status === 'complete';
       edges.push({
-        id: `e-deploy-${taskId}`,
-        source: 'deploy-endpoint', target: taskId,
+        id: `e-bucket-${taskId}`,
+        source: 'storage-bucket', target: taskId,
         sourceHandle: 'source-right', targetHandle: 'target-left',
         type: 'smoothstep',
-        animated: isRunning || isComplete,
-        style: { stroke: isComplete ? '#4CAF50' : isRunning ? '#1A73E8' : '#DADCE0', strokeWidth: 2 },
+        animated: stepStatuses['storage-bucket']?.status === 'complete' || isRunning || isComplete,
+        style: { stroke: isComplete ? '#4CAF50' : isRunning ? '#1A73E8' : stepStatuses['storage-bucket']?.status === 'complete' ? '#4CAF50' : '#DADCE0', strokeWidth: 2 },
       });
     });
 
-    // Generate Embeddings → Fine-Tune
+    // Load MedSigLIP → Fine-Tune (convergence)
     edges.push({
-      id: 'e-embeddings-finetune',
-      source: 'generate-embeddings', target: 'fine-tune',
+      id: 'e-loadmodel-finetune',
+      source: 'load-model', target: 'fine-tune',
       sourceHandle: 'source-right', targetHandle: 'target-left',
       type: 'smoothstep',
-      animated: stepStatuses['generate-embeddings']?.status === 'complete' || stepStatuses['fine-tune']?.status === 'running',
-      style: { stroke: stepStatuses['fine-tune']?.status === 'complete' ? '#4CAF50' : stepStatuses['generate-embeddings']?.status === 'complete' ? '#1A73E8' : '#DADCE0', strokeWidth: 2 },
+      animated: stepStatuses['load-model']?.status === 'complete' || stepStatuses['fine-tune']?.status === 'running',
+      style: { stroke: stepStatuses['fine-tune']?.status === 'complete' ? '#4CAF50' : stepStatuses['load-model']?.status === 'complete' ? '#1A73E8' : '#DADCE0', strokeWidth: 2 },
     });
 
-    // Zero-Shot → Evaluate Model
+    // Download Dataset → Fine-Tune (convergence)
     edges.push({
-      id: 'e-zeroshot-evaluate',
-      source: 'zero-shot', target: 'evaluate-model',
+      id: 'e-dataset-finetune',
+      source: 'download-dataset', target: 'fine-tune',
       sourceHandle: 'source-right', targetHandle: 'target-left',
       type: 'smoothstep',
-      animated: stepStatuses['zero-shot']?.status === 'complete' || stepStatuses['evaluate-model']?.status === 'running',
-      style: { stroke: stepStatuses['evaluate-model']?.status === 'complete' ? '#4CAF50' : stepStatuses['zero-shot']?.status === 'complete' ? '#1A73E8' : '#DADCE0', strokeWidth: 2 },
+      animated: stepStatuses['download-dataset']?.status === 'complete' || stepStatuses['fine-tune']?.status === 'running',
+      style: { stroke: stepStatuses['fine-tune']?.status === 'complete' ? '#4CAF50' : stepStatuses['download-dataset']?.status === 'complete' ? '#1A73E8' : '#DADCE0', strokeWidth: 2 },
     });
 
-    // Fine-Tune → Evaluate Model
+    // Fine-Tune → Save Results
     edges.push({
-      id: 'e-finetune-evaluate',
-      source: 'fine-tune', target: 'evaluate-model',
-      sourceHandle: 'source-bottom', targetHandle: 'target-top',
+      id: 'e-finetune-saveresults',
+      source: 'fine-tune', target: 'save-results',
+      sourceHandle: 'source-right', targetHandle: 'target-left',
       type: 'smoothstep',
-      animated: stepStatuses['fine-tune']?.status === 'complete' || stepStatuses['evaluate-model']?.status === 'running',
-      style: { stroke: stepStatuses['evaluate-model']?.status === 'complete' ? '#4CAF50' : stepStatuses['fine-tune']?.status === 'complete' ? '#1A73E8' : '#DADCE0', strokeWidth: 2 },
-    });
-
-    // Fine-Tune → Bucket (loop back - checkpoints saved to GCS)
-    const fineTuneComplete = stepStatuses['fine-tune']?.status === 'complete';
-    edges.push({
-      id: 'e-finetune-bucket',
-      source: 'fine-tune', target: 'storage-bucket',
-      sourceHandle: 'source-right', targetHandle: 'target-right',
-      type: 'smoothstep',
-      animated: fineTuneComplete,
-      style: { 
-        stroke: fineTuneComplete ? '#9C27B0' : '#DADCE0', 
-        strokeWidth: 2,
-        strokeDasharray: fineTuneComplete ? '0' : '5,5',
-      },
-    });
-
-    // Evaluate → Bucket (loop back - results saved to GCS)
-    const evaluateComplete = stepStatuses['evaluate-model']?.status === 'complete';
-    edges.push({
-      id: 'e-evaluate-bucket',
-      source: 'evaluate-model', target: 'storage-bucket',
-      sourceHandle: 'source-right', targetHandle: 'target-right',
-      type: 'smoothstep',
-      animated: evaluateComplete,
-      style: { 
-        stroke: evaluateComplete ? '#9C27B0' : '#DADCE0', 
-        strokeWidth: 2,
-        strokeDasharray: evaluateComplete ? '0' : '5,5',
-      },
-      label: evaluateComplete ? '📊 Results in Bucket' : '',
-      labelStyle: { fill: '#9C27B0', fontWeight: 600, fontSize: 11 },
-      labelBgStyle: { fill: 'white', fillOpacity: 0.9 },
+      animated: stepStatuses['fine-tune']?.status === 'complete' || stepStatuses['save-results']?.status === 'running',
+      style: { stroke: stepStatuses['save-results']?.status === 'complete' ? '#4CAF50' : stepStatuses['fine-tune']?.status === 'complete' ? '#1A73E8' : '#DADCE0', strokeWidth: 2 },
     });
 
     return edges;
@@ -602,10 +530,10 @@ const WorkloadFlowInner: React.FC<WorkloadFlowInnerProps> = ({ onComplete }) => 
         });
       }
       
-      // Update pipeline task statuses from Vertex AI jobs
+      // Update pipeline task statuses from GCS markers
       if (data.jobs?.taskStatuses) {
         const taskStatuses = data.jobs.taskStatuses;
-        const pipelineTasks = ['deploy-endpoint', 'generate-embeddings', 'zero-shot', 'fine-tune', 'evaluate-model'];
+        const pipelineTasks = ['load-model', 'download-dataset', 'fine-tune', 'save-results'];
         
         setStepStatuses(prev => {
           const updates: Record<string, StepStatus> = {};
@@ -620,7 +548,7 @@ const WorkloadFlowInner: React.FC<WorkloadFlowInnerProps> = ({ onComplete }) => 
               const statusMessage = newStatus === 'complete' 
                 ? `✓ ${taskId} completed successfully`
                 : newStatus === 'running'
-                ? `▶ ${taskId} running on Vertex AI...`
+                ? `▶ ${taskId} running...`
                 : '';
               
               updates[taskId] = {
@@ -628,23 +556,6 @@ const WorkloadFlowInner: React.FC<WorkloadFlowInnerProps> = ({ onComplete }) => 
                 logs: statusMessage ? [...logs, { timestamp, message: statusMessage, type: newStatus === 'complete' ? 'success' as const : 'info' as const }] : logs
               };
             }
-          }
-          
-          // Also update deploy-endpoint if any task is running
-          if (data.pipelineRunning && prev['deploy-endpoint']?.status !== 'running') {
-            hasUpdates = true;
-            const timestamp = new Date().toLocaleTimeString('en-US', { hour12: false });
-            updates['deploy-endpoint'] = {
-              status: 'running',
-              logs: [...(prev['deploy-endpoint']?.logs || []), { timestamp, message: '▶ MedSigLIP pipeline detected running on Vertex AI', type: 'info' as const }]
-            };
-          } else if (data.allComplete && prev['deploy-endpoint']?.status !== 'complete') {
-            hasUpdates = true;
-            const timestamp = new Date().toLocaleTimeString('en-US', { hour12: false });
-            updates['deploy-endpoint'] = {
-              status: 'complete',
-              logs: [...(prev['deploy-endpoint']?.logs || []), { timestamp, message: '✓ MedSigLIP pipeline completed successfully!', type: 'success' as const }]
-            };
           }
           
           return hasUpdates ? { ...prev, ...updates } : prev;
@@ -753,9 +664,13 @@ const WorkloadFlowInner: React.FC<WorkloadFlowInnerProps> = ({ onComplete }) => 
         status: 'pending',
         logs: [{ timestamp, message: '⏳ Waiting for researcher to create bucket from notebook...', type: 'info' as const }]
       },
-      'deploy-endpoint': {
+      'load-model': {
         status: 'pending',
-        logs: [{ timestamp, message: '⏳ Waiting for researcher to deploy MedSigLIP from notebook...', type: 'info' as const }]
+        logs: [{ timestamp, message: '⏳ Waiting for researcher to load MedSigLIP from notebook...', type: 'info' as const }]
+      },
+      'download-dataset': {
+        status: 'pending',
+        logs: [{ timestamp, message: '⏳ Waiting for researcher to download dataset from notebook...', type: 'info' as const }]
       }
     }));
 
@@ -778,11 +693,10 @@ const WorkloadFlowInner: React.FC<WorkloadFlowInnerProps> = ({ onComplete }) => 
     ...INFRA_STEPS,
     { id: 'provision-workbench', label: 'Provision Workbench', command: 'Vertex AI Workbench (GPU)', icon: 'terminal' },
     { id: 'storage-bucket', label: 'Storage Bucket', command: `gs://${config.bucketName}`, icon: 'cloud_upload' },
-    { id: 'deploy-endpoint', label: 'Deploy MedSigLIP', command: 'medsiglip-448 → Vertex AI Endpoint', icon: 'rocket_launch' },
-    { id: 'generate-embeddings', label: 'Generate Embeddings', command: '768-dim image + text vectors', icon: 'data_array' },
-    { id: 'zero-shot', label: 'Zero-Shot Classification', command: 'Text-prompt tissue classification', icon: 'category' },
+    { id: 'load-model', label: 'Load MedSigLIP', command: 'from_pretrained("google/medsiglip-448")', icon: 'neurology' },
+    { id: 'download-dataset', label: 'Download Dataset', command: 'NCT-CRC-HE-100K from Zenodo', icon: 'download' },
     { id: 'fine-tune', label: 'Fine-Tune Model', command: 'HF Trainer on NCT-CRC-HE-100K', icon: 'model_training' },
-    { id: 'evaluate-model', label: 'Evaluate Model', command: 'Accuracy + F1 on CRC-VAL-HE-7K', icon: 'assessment' },
+    { id: 'save-results', label: 'Save Results to Bucket', command: 'Checkpoints + eval → GCS', icon: 'cloud_upload' },
   ];
   const selectedStepData = allSteps.find(s => s.id === selectedStep);
 

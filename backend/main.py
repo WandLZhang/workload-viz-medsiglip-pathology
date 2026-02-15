@@ -160,7 +160,7 @@ def execute_iam_roles():
             'roles/aiplatform.user',
             'roles/notebooks.admin',
             'roles/logging.viewer',
-            'roles/storage.admin'
+            'roles/storage.admin',
         ]
         
         # Get current policy
@@ -204,16 +204,70 @@ def execute_iam_roles():
 
 def execute_configure_org_policies():
     """
-    Placeholder for org policy overrides.
-    Most projects don't need any changes here. If you hit org constraint errors
-    during Workbench provisioning or GPU allocation, add the specific policy
-    overrides in this function (e.g., compute.requireShieldedVm,
-    compute.trustedImageProjects, compute.vmExternalIpAccess).
+    Override org policy constraints that block GPU workbench provisioning.
+    
+    compute.requireShieldedVm: When enforced (inherited from org), requires
+    Secure Boot on all VMs. Secure Boot blocks NVIDIA proprietary GPU drivers
+    because they are unsigned kernel modules. We override this at the project
+    level to allow non-secure-boot VMs for A100 GPU workbenches.
     """
-    yield log_msg("Org Policies — placeholder (no overrides configured)")
-    yield log_msg("  ✓ No org policy changes needed for this project", "success")
-    yield log_msg("  Add overrides here if you hit constraint errors later", "info")
-    yield step_complete()
+    yield log_msg("Configuring org policy overrides for GPU workbench...")
+    
+    try:
+        credentials, project = default()
+        
+        # Use Org Policy API v2
+        orgpolicy_service = discovery.build('orgpolicy', 'v2', credentials=credentials)
+        
+        # Override compute.requireShieldedVm → enforce: false
+        # Required because NVIDIA GPU drivers are unsigned kernel modules
+        # and Secure Boot blocks unsigned module loading
+        policy_name = f"projects/{PROJECT_ID}/policies/compute.requireShieldedVm"
+        
+        yield log_msg("  Disabling compute.requireShieldedVm (required for NVIDIA GPU drivers)...")
+        
+        try:
+            policy_body = {
+                "name": policy_name,
+                "spec": {
+                    "rules": [{"enforce": False}]
+                }
+            }
+            
+            # Try create first (policy doesn't exist at project level yet, only inherited)
+            try:
+                orgpolicy_service.projects().policies().create(
+                    parent=f"projects/{PROJECT_ID}",
+                    body=policy_body
+                ).execute()
+                yield log_msg("  ✓ compute.requireShieldedVm overridden (enforce: false)", "success")
+            except Exception as create_err:
+                create_str = str(create_err)
+                if '409' in create_str or 'already exists' in create_str.lower():
+                    # Policy already exists at project level — update it
+                    orgpolicy_service.projects().policies().patch(
+                        name=policy_name,
+                        body=policy_body
+                    ).execute()
+                    yield log_msg("  ✓ compute.requireShieldedVm updated (enforce: false)", "success")
+                else:
+                    raise create_err
+            
+            yield log_msg("  NVIDIA unsigned kernel modules can now load on VMs", "info")
+        except Exception as e:
+            err_str = str(e)
+            if 'PERMISSION_DENIED' in err_str or '403' in err_str:
+                yield log_msg(f"  ⚠ Permission denied — need orgpolicy.policyAdmin role", "error")
+                yield log_msg(f"  Run: gcloud org-policies set-policy --project={PROJECT_ID} with enforce:false", "info")
+                yield step_error("Missing orgpolicy.policyAdmin permission")
+                return
+            else:
+                yield log_msg(f"  ⚠ Org policy override: {err_str[:120]}", "error")
+                raise e
+        
+        yield step_complete()
+    except Exception as e:
+        yield step_error(str(e))
 
 
 def execute_create_network():
@@ -517,16 +571,147 @@ def execute_provision_workbench():
         # --- Zone fallback loop: try each zone in PREFERRED_ZONES ---
         sa_email = f"{SERVICE_ACCOUNT_NAME}@{PROJECT_ID}.iam.gserviceaccount.com"
 
-        startup_script = '''#!/bin/bash
+        startup_script = f'''#!/bin/bash
 set -e
 echo "=== MedSigLIP A100 Workbench Setup ==="
 nvidia-smi || echo "WARNING: nvidia-smi not found, GPU drivers may need install"
 pip install --upgrade pip
 pip install torch torchvision --index-url https://download.pytorch.org/whl/cu124
-pip install transformers datasets huggingface_hub accelerate
+pip install transformers datasets huggingface_hub accelerate evaluate
 pip install google-cloud-aiplatform google-cloud-storage
 pip install scikit-learn matplotlib pillow tqdm
 mkdir -p /home/jupyter/medsiglip-workspace
+
+# Create the MedSigLIP pathology notebook
+cat > /home/jupyter/medsiglip-workspace/MedSigLIP_Pathology_Pipeline.ipynb << 'NOTEBOOK'
+{{
+  "cells": [
+    {{
+      "cell_type": "markdown",
+      "metadata": {{}},
+      "source": ["# MedSigLIP Pathology Pipeline (All-Local on A100)\\n", "\\n", "This notebook runs the complete MedSigLIP pipeline locally on GPU:\\n", "1. Load model from HuggingFace\\n", "2. Download NCT-CRC-HE-100K dataset\\n", "3. Zero-shot baseline on CRC-VAL-HE-7K\\n", "4. Fine-tune with HuggingFace Trainer\\n", "5. Evaluate & compare pretrained vs fine-tuned\\n", "\\n", "Based on: https://github.com/google-health/medsiglip/blob/main/notebooks/fine_tune_with_hugging_face.ipynb"]
+    }},
+    {{
+      "cell_type": "markdown",
+      "metadata": {{}},
+      "source": ["## Step 1: Setup & GPU Verification"]
+    }},
+    {{
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {{}},
+      "outputs": [],
+      "source": ["import torch\\n", "print(f\\"GPU: {{torch.cuda.get_device_name(0)}}\\")", "\\n", "print(f\\"VRAM: {{torch.cuda.get_device_properties(0).total_mem / 1e9:.1f}} GB\\")", "\\n", "assert torch.cuda.is_available(), \\"No GPU found!\\"\\n", "\\n", "PROJECT_ID = \\"{PROJECT_ID}\\"\\n", "BUCKET_NAME = \\"{BUCKET_NAME}\\""]
+    }},
+    {{
+      "cell_type": "markdown",
+      "metadata": {{}},
+      "source": ["## Step 2: HuggingFace Auth & Load MedSigLIP"]
+    }},
+    {{
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {{}},
+      "outputs": [],
+      "source": ["from huggingface_hub import get_token\\n", "if get_token() is None:\\n", "    from huggingface_hub import notebook_login\\n", "    notebook_login()\\n", "\\n", "from transformers import AutoProcessor, AutoModel\\n", "\\n", "model_id = \\"google/medsiglip-448\\"\\n", "model = AutoModel.from_pretrained(model_id)\\n", "processor = AutoProcessor.from_pretrained(model_id)\\n", "print(f\\"Loaded {{model_id}}\\")"]
+    }},
+    {{
+      "cell_type": "markdown",
+      "metadata": {{}},
+      "source": ["## Step 3: Create GCS Bucket"]
+    }},
+    {{
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {{}},
+      "outputs": [],
+      "source": ["!gcloud storage buckets describe gs://{BUCKET_NAME} 2>/dev/null || gcloud storage buckets create gs://{BUCKET_NAME} --project={PROJECT_ID}\\n", "print(f\\"Bucket ready: gs://{BUCKET_NAME}\\")"]
+    }},
+    {{
+      "cell_type": "markdown",
+      "metadata": {{}},
+      "source": ["## Step 4: Download NCT-CRC-HE-100K + CRC-VAL-HE-7K"]
+    }},
+    {{
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {{}},
+      "outputs": [],
+      "source": ["!wget -nc -q \\"https://zenodo.org/records/1214456/files/NCT-CRC-HE-100K.zip\\"\\n", "!wget -nc -q \\"https://zenodo.org/records/1214456/files/CRC-VAL-HE-7K.zip\\"\\n", "!unzip -qn NCT-CRC-HE-100K.zip\\n", "!unzip -qn CRC-VAL-HE-7K.zip\\n", "print(\\"Datasets downloaded and extracted.\\")"]
+    }},
+    {{
+      "cell_type": "markdown",
+      "metadata": {{}},
+      "source": ["## Step 5: Prepare Training Dataset"]
+    }},
+    {{
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {{}},
+      "outputs": [],
+      "source": ["from datasets import load_dataset\\n", "from torchvision.transforms import Compose, Resize, ToTensor, Normalize, InterpolationMode\\n", "\\n", "train_size = 9000\\n", "validation_size = 1000\\n", "\\n", "data = load_dataset(\\"./NCT-CRC-HE-100K\\", split=\\"train\\")\\n", "data = data.train_test_split(train_size=train_size, test_size=validation_size, shuffle=True, seed=42)\\n", "data[\\"validation\\"] = data.pop(\\"test\\")\\n", "\\n", "TISSUE_CLASSES = [\\n", "    \\"adipose\\", \\"background\\", \\"debris\\", \\"lymphocytes\\", \\"mucus\\",\\n", "    \\"smooth muscle\\", \\"normal colon mucosa\\", \\"cancer-associated stroma\\",\\n", "    \\"colorectal adenocarcinoma epithelium\\"\\n", "]\\n", "\\n", "size = processor.image_processor.size[\\"height\\"]\\n", "mean = processor.image_processor.image_mean\\n", "std = processor.image_processor.image_std\\n", "\\n", "_transform = Compose([\\n", "    Resize((size, size), interpolation=InterpolationMode.BILINEAR),\\n", "    ToTensor(),\\n", "    Normalize(mean=mean, std=std),\\n", "])\\n", "\\n", "def preprocess(examples):\\n", "    pixel_values = [_transform(image.convert(\\"RGB\\")) for image in examples[\\"image\\"]]\\n", "    captions = [TISSUE_CLASSES[label] for label in examples[\\"label\\"]]\\n", "    inputs = processor.tokenizer(captions, max_length=64, padding=\\"max_length\\", truncation=True, return_attention_mask=True)\\n", "    inputs[\\"pixel_values\\"] = pixel_values\\n", "    return inputs\\n", "\\n", "data = data.map(preprocess, batched=True, remove_columns=[\\"image\\", \\"label\\"])\\n", "print(f\\"Train: {{len(data[chr(116)+chr(114)+chr(97)+chr(105)+chr(110)])}}, Val: {{len(data[chr(118)+chr(97)+chr(108)+chr(105)+chr(100)+chr(97)+chr(116)+chr(105)+chr(111)+chr(110)])}}\\")"]
+    }},
+    {{
+      "cell_type": "markdown",
+      "metadata": {{}},
+      "source": ["## Step 6: Zero-Shot Baseline (Pretrained Model)"]
+    }},
+    {{
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {{}},
+      "outputs": [],
+      "source": ["import io, evaluate\\n", "from PIL import Image\\n", "\\n", "test_data = load_dataset(\\"./CRC-VAL-HE-7K\\", split=\\"train\\")\\n", "test_data = test_data.shuffle(seed=42).select(range(1000))\\n", "test_batches = test_data.batch(batch_size=64)\\n", "\\n", "accuracy_metric = evaluate.load(\\"accuracy\\")\\n", "f1_metric = evaluate.load(\\"f1\\")\\n", "REFERENCES = test_data[\\"label\\"]\\n", "\\n", "def compute_metrics(predictions):\\n", "    metrics = {{}}\\n", "    metrics.update(accuracy_metric.compute(predictions=predictions, references=REFERENCES))\\n", "    metrics.update(f1_metric.compute(predictions=predictions, references=REFERENCES, average=\\"weighted\\"))\\n", "    return metrics\\n", "\\n", "pt_model = AutoModel.from_pretrained(model_id, device_map=\\"auto\\")\\n", "pt_predictions = []\\n", "for batch in test_batches:\\n", "    images = [Image.open(io.BytesIO(image[\\"bytes\\"])) for image in batch[\\"image\\"]]\\n", "    inputs = processor(text=TISSUE_CLASSES, images=images, padding=\\"max_length\\", return_tensors=\\"pt\\").to(\\"cuda\\")\\n", "    with torch.no_grad():\\n", "        outputs = pt_model(**inputs)\\n", "    pt_predictions.extend(outputs.logits_per_image.argmax(axis=1).tolist())\\n", "\\n", "pt_metrics = compute_metrics(pt_predictions)\\n", "print(f\\"Pretrained baseline: {{pt_metrics}}\\")"]
+    }},
+    {{
+      "cell_type": "markdown",
+      "metadata": {{}},
+      "source": ["## Step 7: Fine-Tune with Contrastive Loss"]
+    }},
+    {{
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {{}},
+      "outputs": [],
+      "source": ["from transformers import TrainingArguments, Trainer\\n", "\\n", "def collate_fn(examples):\\n", "    pixel_values = torch.tensor([ex[\\"pixel_values\\"] for ex in examples])\\n", "    input_ids = torch.tensor([ex[\\"input_ids\\"] for ex in examples])\\n", "    attention_mask = torch.tensor([ex[\\"attention_mask\\"] for ex in examples])\\n", "    return {{\\"pixel_values\\": pixel_values, \\"input_ids\\": input_ids, \\"attention_mask\\": attention_mask, \\"return_loss\\": True}}\\n", "\\n", "training_args = TrainingArguments(\\n", "    output_dir=\\"medsiglip-448-ft-crc100k\\",\\n", "    num_train_epochs=2,\\n", "    per_device_train_batch_size=8,\\n", "    per_device_eval_batch_size=8,\\n", "    gradient_accumulation_steps=8,\\n", "    logging_steps=50,\\n", "    save_strategy=\\"epoch\\",\\n", "    eval_strategy=\\"steps\\",\\n", "    eval_steps=50,\\n", "    learning_rate=1e-4,\\n", "    weight_decay=0.01,\\n", "    warmup_steps=5,\\n", "    lr_scheduler_type=\\"cosine\\",\\n", "    push_to_hub=False,\\n", "    report_to=\\"tensorboard\\",\\n", ")\\n", "\\n", "trainer = Trainer(\\n", "    model=model,\\n", "    args=training_args,\\n", "    train_dataset=data[\\"train\\"],\\n", "    eval_dataset=data[\\"validation\\"].shuffle().select(range(200)),\\n", "    data_collator=collate_fn,\\n", ")\\n", "\\n", "trainer.train()\\n", "trainer.save_model()\\n", "print(\\"Fine-tuning complete! Model saved to medsiglip-448-ft-crc100k/\\")"]
+    }},
+    {{
+      "cell_type": "markdown",
+      "metadata": {{}},
+      "source": ["## Step 8: Evaluate Fine-Tuned Model & Compare"]
+    }},
+    {{
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {{}},
+      "outputs": [],
+      "source": ["ft_model = AutoModel.from_pretrained(\\"medsiglip-448-ft-crc100k\\", device_map=\\"auto\\")\\n", "\\n", "ft_predictions = []\\n", "for batch in test_batches:\\n", "    images = [Image.open(io.BytesIO(image[\\"bytes\\"])) for image in batch[\\"image\\"]]\\n", "    inputs = processor(text=TISSUE_CLASSES, images=images, padding=\\"max_length\\", return_tensors=\\"pt\\").to(\\"cuda\\")\\n", "    with torch.no_grad():\\n", "        outputs = ft_model(**inputs)\\n", "    ft_predictions.extend(outputs.logits_per_image.argmax(axis=1).tolist())\\n", "\\n", "ft_metrics = compute_metrics(ft_predictions)\\n", "print(f\\"Pretrained: {{pt_metrics}}\\")\\n", "print(f\\"Fine-tuned: {{ft_metrics}}\\")\\n", "print(f\\"Accuracy improvement: {{ft_metrics['accuracy'] - pt_metrics['accuracy']:.4f}}\\")"]
+    }},
+    {{
+      "cell_type": "markdown",
+      "metadata": {{}},
+      "source": ["## Step 9: Save Results to GCS"]
+    }},
+    {{
+      "cell_type": "code",
+      "execution_count": null,
+      "metadata": {{}},
+      "outputs": [],
+      "source": ["import json as _json\\n", "results = {{\\"pretrained\\": pt_metrics, \\"fine_tuned\\": ft_metrics}}\\n", "with open(\\"evaluation_results.json\\", \\"w\\") as f:\\n", "    _json.dump(results, f, indent=2)\\n", "\\n", "!gsutil cp evaluation_results.json gs://{BUCKET_NAME}/results/\\n", "!gsutil cp -r medsiglip-448-ft-crc100k/ gs://{BUCKET_NAME}/medsiglip-finetune/\\n", "print(f\\"Results saved to gs://{BUCKET_NAME}/results/\\")\\n", "print(f\\"Checkpoints saved to gs://{BUCKET_NAME}/medsiglip-finetune/\\")"]
+    }}
+  ],
+  "metadata": {{
+    "kernelspec": {{
+      "display_name": "Python 3",
+      "language": "python",
+      "name": "python3"
+    }}
+  }},
+  "nbformat": 4,
+  "nbformat_minor": 4
+}}
+NOTEBOOK
+
 chown -R jupyter:jupyter /home/jupyter/medsiglip-workspace
 echo "=== Setup complete. Open medsiglip-workspace/ in JupyterLab ==="
 '''
@@ -550,7 +735,7 @@ echo "=== Setup complete. Open medsiglip-workspace/ in JupyterLab ==="
                     'metadata': {'startup-script': startup_script, 'proxy-mode': 'service_account'},
                     'bootDisk': {'diskSizeGb': '300', 'diskType': 'PD_SSD'},
                     'vmImage': {'project': 'cloud-notebooks-managed', 'name': 'workbench-instances-v20260122'},
-                    'shieldedInstanceConfig': {'enableSecureBoot': True, 'enableVtpm': True, 'enableIntegrityMonitoring': True}
+                    'shieldedInstanceConfig': {'enableSecureBoot': False, 'enableVtpm': True, 'enableIntegrityMonitoring': True}
                 }
             }
 
@@ -764,12 +949,11 @@ STEP_EXECUTORS = {
     'provision-workbench': execute_provision_workbench,
     # Researcher workflow (triggered from notebook cells, but we visualize)
     'storage-bucket': execute_create_bucket,
-    # MedSigLIP pipeline steps (researcher-driven from notebook)
-    'deploy-endpoint': execute_check_vertex_ai_status,
-    'generate-embeddings': execute_check_vertex_ai_status,
-    'zero-shot': execute_check_vertex_ai_status,
+    # MedSigLIP pipeline steps (researcher-driven from notebook, polled via GCS markers)
+    'load-model': execute_check_vertex_ai_status,
+    'download-dataset': execute_check_vertex_ai_status,
     'fine-tune': execute_check_vertex_ai_status,
-    'evaluate-model': execute_check_vertex_ai_status,
+    'save-results': execute_check_vertex_ai_status,
 }
 
 
@@ -1117,11 +1301,13 @@ def poll_all():
     """
     Combined polling endpoint that returns status for all researcher-triggered resources.
     This is called by the frontend in monitoring mode after workbench is provisioned.
-    Returns: bucket status, Vertex AI endpoint/artifact statuses, and workbench status.
+    Returns: bucket status, GCS marker-based task statuses, and workbench status.
     
-    Infers MedSigLIP pipeline step completion from:
-    - Deployed Vertex AI endpoints (deploy-endpoint)
-    - GCS artifacts: embeddings/, zero-shot/, medsiglip-finetune/, results/
+    Infers MedSigLIP pipeline step completion from GCS marker files:
+    - status/load-model.json → load-model complete
+    - status/download-dataset.json → download-dataset complete
+    - status/fine-tune.json → fine-tune complete
+    - results/ + medsiglip-finetune/ prefixes → save-results complete
     """
     print(f"\n[POLL-ALL] Combined polling for all MedSigLIP resources...")
     
@@ -1148,58 +1334,44 @@ def poll_all():
     except Exception as e:
         result['bucket'] = {'exists': False, 'status': 'error', 'error': str(e)[:100]}
     
-    # 2. Check Vertex AI endpoints and GCS artifacts for pipeline step statuses
+    # 2. Check GCS marker files for pipeline step statuses
     task_statuses = {
-        'deploy-endpoint': 'pending',
-        'generate-embeddings': 'pending',
-        'zero-shot': 'pending',
+        'load-model': 'pending',
+        'download-dataset': 'pending',
         'fine-tune': 'pending',
-        'evaluate-model': 'pending',
+        'save-results': 'pending',
     }
     
-    num_medsiglip_endpoints = 0
-    try:
-        credentials, _ = default()
-        ai_service = discovery.build('aiplatform', 'v1', credentials=credentials)
-        parent = f"projects/{PROJECT_ID}/locations/{REGION}"
-        
-        endpoints_response = ai_service.projects().locations().endpoints().list(
-            parent=parent
-        ).execute()
-        
-        endpoints = endpoints_response.get('endpoints', [])
-        medsiglip_eps = [e for e in endpoints if 'medsiglip' in e.get('displayName', '').lower()]
-        num_medsiglip_endpoints = len(medsiglip_eps)
-        
-        print(f"[POLL-ALL] Found {len(endpoints)} total endpoints, {num_medsiglip_endpoints} MedSigLIP")
-        
-        if medsiglip_eps:
-            has_deployed = any(len(e.get('deployedModels', [])) > 0 for e in medsiglip_eps)
-            task_statuses['deploy-endpoint'] = 'complete' if has_deployed else 'running'
-            for ep in medsiglip_eps:
-                n_models = len(ep.get('deployedModels', []))
-                print(f"[POLL-ALL]   • {ep.get('displayName')}: {n_models} deployed model(s)")
-    except Exception as e:
-        print(f"[POLL-ALL] Vertex AI endpoint check error: {str(e)}")
-    
-    # Check GCS for pipeline artifacts
     try:
         client = storage.Client(project=PROJECT_ID)
         bucket = client.get_bucket(BUCKET_NAME)
         
-        artifact_map = {
-            'embeddings/': 'generate-embeddings',
-            'zero-shot/': 'zero-shot',
-            'medsiglip-finetune/': 'fine-tune',
-            'results/': 'evaluate-model',
+        # Check marker files
+        marker_map = {
+            'status/load-model.json': 'load-model',
+            'status/download-dataset.json': 'download-dataset',
+            'status/fine-tune.json': 'fine-tune',
         }
         
-        for prefix, task_id in artifact_map.items():
-            blobs = list(bucket.list_blobs(prefix=prefix, max_results=1))
-            if blobs:
+        for marker_path, task_id in marker_map.items():
+            if bucket.blob(marker_path).exists():
                 task_statuses[task_id] = 'complete'
-    except Exception:
-        pass
+                print(f"[POLL-ALL]   ✓ {task_id}: marker found ({marker_path})")
+            else:
+                print(f"[POLL-ALL]   ○ {task_id}: no marker yet")
+        
+        # save-results: check for actual artifacts (results/ + medsiglip-finetune/)
+        results_blobs = list(bucket.list_blobs(prefix="results/", max_results=1))
+        checkpoint_blobs = list(bucket.list_blobs(prefix="medsiglip-finetune/", max_results=1))
+        if results_blobs and checkpoint_blobs:
+            task_statuses['save-results'] = 'complete'
+            print(f"[POLL-ALL]   ✓ save-results: artifacts found in results/ and medsiglip-finetune/")
+        else:
+            print(f"[POLL-ALL]   ○ save-results: waiting for artifacts (results/: {len(results_blobs)}, finetune/: {len(checkpoint_blobs)})")
+    except gcp_exceptions.NotFound:
+        print(f"[POLL-ALL] Bucket {BUCKET_NAME} not found, all tasks pending")
+    except Exception as e:
+        print(f"[POLL-ALL] GCS marker check error: {str(e)}")
     
     pipeline_running = any(s == 'running' for s in task_statuses.values())
     all_complete = all(s == 'complete' for s in task_statuses.values())
@@ -1207,7 +1379,6 @@ def poll_all():
     result['jobs'] = {
         'taskStatuses': task_statuses,
         'recentJobs': [],
-        'totalEndpoints': num_medsiglip_endpoints
     }
     result['pipelineRunning'] = pipeline_running
     result['allComplete'] = all_complete
@@ -1235,6 +1406,7 @@ def poll_all():
         result['workbench'] = {'error': str(e)[:100]}
     
     print(f"[POLL-ALL] Bucket: {result['bucket'].get('status')}, Pipeline running: {result['pipelineRunning']}, All complete: {result['allComplete']}")
+    print(f"[POLL-ALL] Task statuses: {task_statuses}")
     return jsonify(result)
 
 
